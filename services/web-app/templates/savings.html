@@ -1,0 +1,38 @@
+{% extends 'feature_base.html' %}
+{% from 'ui.html' import icon, empty %}
+{% block title %}Savings Goals{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">MAKE ROOM FOR WHAT MATTERS</span><h1>Savings Goals</h1><p>Turn someday into a plan, one contribution at a time.</p></div><a class="button primary" href="#goal-editor">{{ icon("plus",16) }} New goal</a></div>
+<p class="info-note">{{ icon("info",16) }} Contributions track money you set aside. They do not move money or change your transaction balance.</p>
+<div class="feature-layout"><div class="feature-results">{% if available %}<div class="charts-grid feature-grid">
+{% for goal in goals %}
+<article class="chart-panel">
+    <h2>{{ goal.name }}</h2><p>Saved {{ (goal.saved)|money }} of {{ (goal.target)|money }}</p>
+    <div class="bar-track" role="progressbar" aria-label="{{ goal.name }} progress" aria-valuenow="{{ goal.percent }}" aria-valuemin="0" aria-valuemax="100"><span class="bar-fill income" style="width: {{ goal.percent }}%;"></span></div>
+    <p>{{ 'Goal reached!' if goal.completed else ('%.2f'|format(goal.remaining)) ~ ' remaining' }}{% if goal.target_date %} · Target date {{ goal.target_date }}{% endif %}</p>
+    <a class="edit-btn" href="{{ url_for('savings', edit=goal.id) }}#goal-editor">Edit Goal</a>
+    <form class="feature-inline-form" method="POST" action="{{ url_for('contribute_goal', goal_id=goal.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="request_key" value="{{ contribution_key }}">
+        <label for="contribution-{{ goal.id }}">Contribution amount</label><input id="contribution-{{ goal.id }}" type="number" name="amount" min="0.01" step="0.01" required>
+        <button type="submit">Record Contribution</button>
+    </form>
+    <details><summary>Contributions ({{ goal.contributions|length }})</summary>
+    {% for item in goal.contributions %}
+        <div class="contribution-row"><span>{{ (item.amount)|money }} · {{ item.created_at[:10] }}</span>
+        <form method="POST" action="{{ url_for('delete_saving', goal_id=goal.id, contribution_id=item.id) }}" data-confirm="This record will be permanently removed. This action cannot be undone."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="delete-btn" type="submit">Remove</button></form></div>
+    {% else %}<p>No contributions recorded.</p>{% endfor %}</details>
+    <form class="feature-inline-form" method="POST" action="{{ url_for('delete_saving', goal_id=goal.id) }}" data-confirm="This record will be permanently removed. This action cannot be undone.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="delete-btn" type="submit">Delete Goal and Contributions</button>
+    </form>
+</article>
+{% else %}{{ empty('Every goal starts with a little', 'No savings goals yet. Give your next adventure, milestone or rainy day a plan.', 'goal') }}{% endfor %}</div>{% endif %}
+</div><form id="goal-editor" class="feature-editor" method="POST" action="{{ url_for('save_goal') }}">
+    <h2>{{ 'Edit Goal' if edit_goal else 'Add Goal' }}</h2>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="goal_id" value="{{ edit_goal.id if edit_goal else '' }}">
+    <label for="goal-name">Goal name</label><input id="goal-name" name="name" maxlength="100" required value="{{ edit_goal.name if edit_goal else '' }}" placeholder="Example: New laptop">
+    <label for="goal-target">Target amount</label><input id="goal-target" type="number" name="target" min="0.01" step="0.01" required value="{{ edit_goal.target if edit_goal else '' }}">
+    <label for="goal-date">Target date (optional)</label><input id="goal-date" type="date" name="target_date" value="{{ edit_goal.target_date or '' if edit_goal else '' }}">
+    <button type="submit">Save Goal</button>{% if edit_goal %}<a href="{{ url_for('savings') }}">Cancel</a>{% endif %}
+</form>
+</div>
+{% endblock %}

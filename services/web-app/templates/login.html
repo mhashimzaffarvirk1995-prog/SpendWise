@@ -1,0 +1,12 @@
+{% extends 'auth_base.html' %}
+{% block title %}Welcome back{% endblock %}
+{% block form %}
+<div class="auth-heading"><h2>Welcome back.</h2><p>Good to see you. Let's pick up where you left off.</p></div>
+<form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="login-email">Email address</label><input id="login-email" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+    <label for="login-password">Password</label><div class="password-wrap"><input id="login-password" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required><button type="button" class="password-toggle" data-password-toggle="login-password" aria-label="Show password" aria-pressed="false">Show</button></div>
+    <button type="submit">Login {{ icon('chevron',16) }}</button>
+</form>
+<p class="auth-link">New to SpendWise? <a href="{{ url_for('signup') }}">Create an account</a></p>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends 'auth_base.html' %}
+{% block title %}Create an account{% endblock %}
+{% block form %}
+<div class="auth-heading"><h2>Make room for your goals.</h2><p>Create your account and start building better money habits.</p></div>
+<form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="signup-name">Your name</label><input id="signup-name" name="name" placeholder="What should we call you?" maxlength="100" autocomplete="name" required>
+    <label for="signup-email">Email address</label><input id="signup-email" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+    <label for="signup-password">Password</label><div class="password-wrap"><input id="signup-password" type="password" name="password" placeholder="Create a password" minlength="6" autocomplete="new-password" aria-describedby="password-hint" required><button type="button" class="password-toggle" data-password-toggle="signup-password" aria-label="Show password" aria-pressed="false">Show</button></div><p id="password-hint" class="field-hint">Use at least 6 characters. A longer, unique password is better.</p>
+    <label for="signup-confirm">Confirm password</label><input id="signup-confirm" type="password" name="confirm_password" placeholder="Enter your password again" minlength="6" autocomplete="new-password" required>
+    <button type="submit">Create Account {{ icon('chevron',16) }}</button>
+</form>
+<p class="auth-link">Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+{% endblock %}

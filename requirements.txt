@@ -1,0 +1,9 @@
+-r services/auth-service/requirements.txt
+-r services/transaction-service/requirements.txt
+-r services/web-app/requirements.txt
+-r services/budget-service/requirements.txt
+-r services/notification-service/requirements.txt
+-r services/reporting-service/requirements.txt
+-r services/recurring-service/requirements.txt
+-r services/savings-service/requirements.txt
+-r services/import-service/requirements.txt

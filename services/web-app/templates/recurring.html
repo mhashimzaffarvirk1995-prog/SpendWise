@@ -1,0 +1,40 @@
+{% extends 'feature_base.html' %}
+{% from 'ui.html' import icon, empty %}
+{% block title %}Recurring Transactions{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">SET IT. KEEP YOUR RHYTHM.</span><h1>Recurring Transactions</h1><p>Put your regular income and expenses on a schedule.</p></div><a class="button primary" href="#schedule-editor">{{ icon("plus",16) }} New schedule</a></div>
+<details class="help-disclosure"><summary>{{ icon('info',16) }} How schedules work</summary><p>Due entries are added every minute while SpendWise is running. Missed dates catch up after restart, up to 100 entries per cycle. Dates use UTC.</p><p>Monthly schedules keep the original day, using the last day for shorter months. Resuming includes missed dates. Deleting a schedule keeps existing transactions.</p></details>
+{% if schedules %}<form class="feature-inline-form run-due-form" method="POST" action="{{ url_for('run_recurring') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="secondary">{{ icon("repeat",16) }} Process Due Entries Now</button>
+</form>{% endif %}
+<div class="feature-layout"><div class="feature-results">{% if available %}
+<div class="charts-grid feature-grid">
+{% for item in schedules %}
+<article class="chart-panel">
+    <h2>{{ item.title }}</h2><p>{{ item.type|title }} · {{ item.category }} · {{ (item.amount)|money }}</p>
+    <p>{{ item.frequency|title }} · Next due {{ item.next_due }} · {{ 'Active' if item.active else 'Paused' }}</p>
+    {% if item.last_error %}<p class="message error">{{ item.last_error }}</p>{% endif %}
+    <div class="feature-actions">
+        <form method="POST" action="{{ url_for('change_recurring', schedule_id=item.id, action='pause' if item.active else 'resume') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">{{ 'Pause' if item.active else 'Resume' }}</button>
+        </form>
+        <form method="POST" action="{{ url_for('change_recurring', schedule_id=item.id, action='delete') }}" data-confirm="Delete this schedule? Transactions already posted will be kept.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="delete-btn" type="submit">Delete Schedule</button>
+        </form>
+    </div>
+</article>
+{% else %}{{ empty('Make your routine effortless', 'No recurring schedules yet. Add a regular bill or income to get started.', 'repeat') }}{% endfor %}
+</div>
+{% endif %}
+</div><form id="schedule-editor" class="feature-editor" method="POST" action="{{ url_for('create_recurring') }}">
+    <h2>Add Schedule</h2><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="rec-title">Title</label><input id="rec-title" name="title" maxlength="100" required placeholder="Example: Monthly rent">
+    <label for="rec-amount">Amount</label><input id="rec-amount" type="number" name="amount" min="0.01" step="0.01" required>
+    <label for="rec-type">Type</label><select id="rec-type" name="type"><option value="expense">Expense</option><option value="income">Income</option></select>
+    <label for="rec-category">Category</label><input id="rec-category" name="category" maxlength="50" required placeholder="Example: Rent">
+    <label for="rec-frequency">Frequency</label><select id="rec-frequency" name="frequency"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="daily">Daily</option></select>
+    <label for="rec-start">First due date</label><input id="rec-start" type="date" name="start_date" value="{{ today }}" required>
+    <button type="submit">Add Schedule</button>
+</form>
+</div>
+{% endblock %}

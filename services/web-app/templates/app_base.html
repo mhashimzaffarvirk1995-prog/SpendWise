@@ -1,0 +1,42 @@
+{% from 'ui.html' import icon %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#6554c0">
+    <title>{% block title %}Overview{% endblock %} · SpendWise</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='2') }}">
+    <script src="{{ url_for('static', filename='app.js', v='2') }}" defer></script>
+</head>
+<body class="app-body">
+<a class="skip-link" href="#main-content">Skip to content</a>
+<button class="nav-scrim" aria-label="Close navigation" data-nav-close hidden></button>
+<aside class="sidebar" id="sidebar" aria-label="Workspace navigation">
+    <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">{{ icon('wallet', 24) }}</span><span>SpendWise<span class="brand-dot">.</span></span></a>
+    <div class="workspace-label">PERSONAL WORKSPACE</div>
+    <nav class="primary-nav" aria-label="Main navigation">
+        {% for endpoint, text, symbol in [('dashboard','Overview','grid'),('reports','Monthly Reports','chart'),('recurring','Recurring','repeat'),('savings','Savings Goals','goal'),('imports','Import CSV','upload')] %}
+        <a href="{{ url_for(endpoint) }}" class="nav-item {{ 'active' if request.endpoint == endpoint else '' }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ text }}</span>{% if request.endpoint == endpoint %}<span class="nav-active-dot"></span>{% endif %}</a>
+        {% endfor %}
+        <div class="nav-divider"></div>
+        <a class="nav-item" href="{{ url_for('dashboard') }}#budget-heading">{{ icon('wallet') }}<span>Budgets</span></a>
+        <a class="nav-item" href="{{ url_for('dashboard') }}#notifications">{{ icon('bell') }}<span>Notifications</span>{% if unread_count|default(0) %}<span class="nav-count">{{ unread_count }}</span>{% endif %}</a>
+    </nav>
+    <div class="sidebar-note"><span class="note-symbol">{{ icon('goal') }}</span><strong>A little clarity. Every day.</strong><p>Make room for what matters with small, mindful money decisions.</p><a href="{{ url_for('savings') }}">Set a savings goal {{ icon('chevron', 14) }}</a></div>
+    <button type="button" class="button secondary mobile-sidebar-close" data-sidebar-close>Close navigation {{ icon("close",16) }}</button>
+    <div class="sidebar-account"><span class="avatar">{{ current_user.name[:1]|upper }}</span><div><strong title="{{ current_user.name }}">{{ current_user.name }}</strong><span>Personal account</span></div><a class="icon-button" href="{{ url_for('logout') }}" aria-label="Logout" title="Logout">{{ icon('logout', 18) }}</a></div>
+</aside>
+<div class="app-shell">
+    <header class="topbar">
+        <div class="topbar-left"><button class="icon-button mobile-menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false" data-nav-toggle>{{ icon('menu') }}</button><span class="breadcrumb">Workspace <span>/</span> <strong>{% block breadcrumb %}Overview{% endblock %}</strong></span></div>
+        <div class="topbar-right"><span class="topbar-note">Your money, in perspective</span><a class="icon-button bell-button" href="{{ url_for('dashboard') }}#notifications" aria-label="Notifications{% if unread_count|default(0) %}, {{ unread_count }} unread{% endif %}">{{ icon('bell') }}{% if unread_count|default(0) %}<span class="notification-dot"></span>{% endif %}</a><span class="avatar small" aria-hidden="true">{{ current_user.name[:1]|upper }}</span></div>
+    </header>
+    <main id="main-content" class="page-content" tabindex="-1">
+        {% include 'messages.html' %}
+        {% block content %}{% endblock %}
+        <footer class="page-footer"><span>SpendWise · A clearer view of your money.</span><span>Made for your everyday.</span></footer>
+    </main>
+</div>
+<dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title"><div class="dialog-inner"><span class="empty-icon danger">{{ icon('info', 26) }}</span><h2 id="confirm-title">Are you sure?</h2><p data-confirm-description></p><div class="form-actions"><button type="button" class="button secondary" data-confirm-cancel>Keep it</button><button type="button" class="button danger" data-confirm-accept>Delete</button></div></div></dialog>
+</body>
+</html>

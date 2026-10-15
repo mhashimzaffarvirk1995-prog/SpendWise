@@ -1,0 +1,11 @@
+{% from 'ui.html' import icon %}
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#6554c0"><title>{% block title %}{% endblock %} · SpendWise</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='2') }}"><script src="{{ url_for('static', filename='app.js', v='2') }}" defer></script></head>
+<body class="login-page">
+<header class="auth-topbar"><a class="brand" href="{{ url_for('login') }}"><span class="brand-mark">{{ icon('wallet',24) }}</span><span>SpendWise<span class="brand-dot">.</span></span></a><span>Small steps. Better money habits.</span></header>
+<main class="login-shell">
+<section class="login-brand"><p class="brand-kicker">A LITTLE CLARITY GOES A LONG WAY</p><h1>Your money.<br>Your goals.<br><em>Your pace.</em></h1><p>A thoughtful space for your spending, savings and everything you're working towards.</p>
+<div class="auth-illustration" aria-hidden="true"><div class="illustration-header"><span>Your next chapter</span>{{ icon('goal',18) }}</div><strong class="illustration-value">More intentional.</strong><div class="illustration-bars">{% for height in [30,45,38,65,50,80,100] %}<i style="--bar:{{ height }}%"></i>{% endfor %}</div><span class="illustration-pill">{{ icon('check',16) }} One step closer to your goals</span></div></section>
+<section><div class="auth-card">{% include 'messages.html' %}{% block form %}{% endblock %}</div><p class="auth-note">A clearer view of your money starts here.</p></section>
+</main></body></html>

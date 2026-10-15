@@ -1,0 +1,67 @@
+{% extends 'app_base.html' %}
+{% from 'ui.html' import icon, empty %}
+{% block title %}Monthly Reports{% endblock %}
+{% block breadcrumb %}Monthly Reports{% endblock %}
+{% block content %}
+        <div class="page-heading"><div><span class="eyebrow">THE BIGGER PICTURE</span><h1>Monthly Reports</h1>
+        <p>See the patterns. Make your next month even better.</p></div><a class="button secondary" href="{{ url_for('dashboard') }}">{{ icon("grid", 16) }} Back to overview</a></div>
+        <form method="GET" class="budget-month-form">
+            <label for="report-month">Report month</label>
+            <input id="report-month" type="month" name="month" value="{{ report_month }}" required>
+            <button type="submit">View Report</button>
+        </form>
+        {% if report_error %}
+            <p class="message error" role="alert">{{ report_error }}</p>
+        {% endif %}
+        {% if report %}
+            <div class="report-heading">
+                <h2>{{ report.month }} Summary</h2>
+                <a class="edit-btn" href="{{ url_for('download_report', month=report.month) }}">Download Transactions CSV</a>
+            </div>
+            <div class="summary">
+                <div class="summary-card income"><h3>Monthly Income</h3><p>{{ (report.summary.income)|money }}</p></div>
+                <div class="summary-card expense"><h3>Monthly Expenses</h3><p>{{ (report.summary.expenses)|money }}</p></div>
+                <div class="summary-card balance"><h3>Monthly Balance</h3><p>{{ (report.summary.balance)|money }}</p></div>
+            </div>
+            <p>{{ report.summary.transaction_count }} transactions in this month. Monthly balance is income minus expenses for this month.</p>
+            {% if not report.summary.transaction_count %}<p class="chart-empty">No transactions for this month. CSV download will contain column headers only.</p>{% endif %}
+            <section class="chart-panel report-comparison" aria-labelledby="comparison-heading">
+                <h2 id="comparison-heading">Previous Month Comparison</h2>
+                {% if report.previous_month %}
+                    <p>{{ report.previous_month }} expenses: <strong>{{ (report.previous_summary.expenses)|money }}</strong></p>
+                    <p>Expense change: <strong>{{ '+' if report.expense_change >= 0 else '' }}{{ report.expense_change|money }}</strong>
+                        {% if report.expense_change_percent is not none %}
+                            ({{ '%+.1f'|format(report.expense_change_percent) }}%)
+                        {% else %}
+                            · Percentage unavailable because previous-month expenses were zero.
+                        {% endif %}
+                    </p>
+                {% else %}<p>No earlier month is available.</p>{% endif %}
+            </section>
+            <section aria-labelledby="category-heading">
+                <h2 id="category-heading">Spending by Category</h2>
+                {% if report.categories %}
+                    <p>Highest spending: <strong>{{ report.highest_spending_category|title }}</strong></p>
+                    <div class="report-table-wrap"><table>
+                        <thead><tr><th scope="col">Category</th><th scope="col">Expenses</th></tr></thead>
+                        <tbody>{% for item in report.categories %}<tr><td>{{ item.category|title }}</td><td>{{ (item.amount)|money }}</td></tr>{% endfor %}</tbody>
+                    </table></div>
+                {% else %}<p class="chart-empty">No expenses for this month.</p>{% endif %}
+            </section>
+            <section aria-labelledby="budget-report-heading">
+                <h2 id="budget-report-heading">Budget Comparison</h2>
+                {% if report.budget_error %}<p class="message error" role="alert">{{ report.budget_error }}</p>
+                {% elif report.budgets %}
+                    <div class="report-table-wrap"><table>
+                        <thead><tr><th scope="col">Category</th><th scope="col">Limit</th><th scope="col">Spent</th><th scope="col">Remaining</th><th scope="col">Status</th></tr></thead>
+                        <tbody>{% for item in report.budgets %}<tr>
+                            <td>{{ item.category|title }}</td><td>{{ (item.amount)|money }}</td>
+                            <td>{{ (item.spent)|money }}</td><td>{{ (item.remaining)|money }}</td>
+                            <td>{{ 'Over budget' if item.status == 'over' else 'Limit approaching' if item.status == 'near' else 'Within budget' }}</td>
+                        </tr>{% endfor %}</tbody>
+                    </table></div>
+                {% else %}<p class="chart-empty">No budgets set for this month.</p>{% endif %}
+                <a href="{{ url_for('dashboard', month=report.month) }}#budget-heading">Manage monthly budgets</a>
+            </section>
+        {% endif %}
+{% endblock %}

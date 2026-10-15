@@ -1,0 +1,32 @@
+{% extends 'feature_base.html' %}
+{% from 'ui.html' import icon %}
+{% block title %}Import CSV{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">LESS TYPING. MORE CLARITY.</span><h1>Bring your transactions together.</h1><p>From a spreadsheet to your dashboard, in a few simple steps.</p></div></div>
+<div class="import-layout">
+    <section class="upload-panel" aria-label="Upload a CSV">
+        <div class="upload-illustration"><span class="empty-icon">{{ icon('upload',28) }}</span><h2>Your records, all in one place.</h2><p>Choose a CSV file to get started. Nothing is saved until you confirm.</p></div>
+        <form enctype="multipart/form-data" method="POST" action="{{ url_for('preview_import') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="import-file">Transaction file</label><input id="import-file" type="file" name="file" accept=".csv,text/csv" aria-describedby="file-help" required><p id="file-help" class="field-hint">UTF-8 CSV · Up to 1 MB · Maximum 1,000 rows</p><button type="submit">Preview CSV {{ icon('chevron',16) }}</button>
+        </form>
+    </section>
+    <section class="import-tips" aria-labelledby="import-how"><h2 id="import-how">A quick look before you import.</h2>
+        <div class="tip-row"><span class="step-number">01</span><div><h3>Choose your file</h3><p>Use your own CSV or a SpendWise report export.</p></div></div>
+        <div class="tip-row"><span class="step-number">02</span><div><h3>Review every detail</h3><p>Check the preview. We'll flag invalid entries and skip duplicate rows.</p></div></div>
+        <div class="tip-row"><span class="step-number">03</span><div><h3>Confirm when you're ready</h3><p>Valid transactions keep their original dates and appear in your dashboard.</p></div></div>
+        <details class="help-disclosure"><summary>CSV format &amp; example {{ icon('chevron',14) }}</summary><p>Columns: date, title, type, category, amount. Use YYYY-MM-DD or ISO dates and income/expense for type. Dates are evaluated in UTC.</p><pre class="csv-example">date,title,type,category,amount
+2026-10-14,Groceries,expense,Food,125.50
+2026-10-14,Salary,income,Job,50000.00</pre><p>Rows matching the same date, title, type, category and amount are considered duplicates.</p></details>
+    </section>
+</div>
+{% if preview %}
+<section class="import-preview" aria-labelledby="preview-title"><div class="section-heading"><div><span class="eyebrow">CHECK BEFORE YOU COMMIT</span><h2 id="preview-title">Import Preview</h2></div><span class="badge income">{{ preview.rows|length }} valid rows</span></div>
+    {% if preview.confirmed %}<p class="message success">This preview has been imported. Confirming it again will not add duplicate transactions.</p>{% endif %}
+    {% if preview.errors %}<p class="message error">Fix the invalid rows and upload the corrected file before importing.</p><ul>{% for item in preview.errors %}<li>Line {{ item.line }}: {{ item.error }}</li>{% endfor %}</ul>{% endif %}
+    <p class="section-description">{{ preview.rows|length }} valid rows · {{ preview.rows|selectattr('duplicate')|list|length }} duplicates to skip.</p>
+    <div class="report-table-wrap" tabindex="0" role="region" aria-label="Import preview table"><table><thead><tr><th scope="col">Line</th><th scope="col">Date (UTC)</th><th scope="col">Title</th><th scope="col">Type</th><th scope="col">Category</th><th scope="col">Amount</th><th scope="col">Action</th></tr></thead>
+    <tbody>{% for item in preview.rows %}<tr><td>{{ item.line }}</td><td>{{ item.payload.created_at[:10] }}</td><td>{{ item.payload.title }}</td><td><span class="badge {{ item.payload.type }}">{{ item.payload.type }}</span></td><td>{{ item.payload.category }}</td><td class="numeric">{{ item.payload.amount|money }}</td><td>{{ 'Skip duplicate' if item.duplicate else 'Import' }}</td></tr>{% endfor %}</tbody></table></div>
+    {% if not preview.errors and not preview.confirmed %}<form class="feature-inline-form" method="POST" action="{{ url_for('confirm_import', preview_id=preview.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">{{ icon('check',16) }} Confirm Import</button></form>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
