@@ -28,3 +28,10 @@
 - **Diagnose:** `sudo find /var/lib/spendwise ! -user spendwise` → `budgets.sqlite3` owned by `root:root`.
 - **Fix:** `chown -R spendwise:spendwise /var/lib/spendwise`. Also found every DB was 0644 (world-readable, created before `UMask=0077`) → `chmod 600`.
 - **Lesson:** a directory write test doesn't prove existing files are writable. Added ownership + world-readable checks to `healthcheck.sh`. When restoring files, use `install -o -g -m`, not `cp`.
+
+## Week 1 · Drill 6A — Typo in /etc/fstab (with nofail)
+- **Symptom:** after reboot the server is reachable but the app is down. `systemctl is-active spendwise` → `inactive`; `systemctl --failed` is empty (nothing "failed", things are *waiting*).
+- **Diagnose:** `df -h /var/lib/spendwise` → `/dev/root`, i.e. the data disk is not mounted. `journalctl -b` → `Expecting device ...5c347350...`. `systemctl list-jobs` shows the start job waiting. `lsblk -f` vs `/etc/fstab` → one character different in the UUID.
+- **Fix:** restored `/etc/fstab.bak`, `findmnt --verify`, `daemon-reload`, `mount -a`, started the service.
+- **What saved us:** `nofail` let the box boot (SSM still reachable). `RequiresMountsFor=/var/lib/spendwise` stopped the app from starting on the empty root-disk folder and creating fresh empty databases there.
+- **Prevention:** after any fstab edit, run `findmnt --verify` and `mount -a` *before* rebooting.
