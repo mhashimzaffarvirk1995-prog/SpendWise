@@ -1,0 +1,10 @@
+/var/log/spendwise-backup.log {
+    su root adm
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+}
