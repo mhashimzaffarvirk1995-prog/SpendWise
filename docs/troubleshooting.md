@@ -43,3 +43,9 @@
 - **Gap found:** `spendwise.service` had no memory limit. A real leak would eat all 7.6 GB, trigger the *global* OOM-killer, and could take out unrelated processes (SSM agent, journald).
 - **Fix:** added `MemoryHigh=512M` (throttle + reclaim) and `MemoryMax=768M` (cgroup OOM → only the app dies → `Restart=on-failure` brings it back).
 - **Lesson:** every long-running service gets a memory ceiling; cgroups turn "the server died" into "the app restarted".
+
+## Week 1 · Gotcha — `sudo chmod` with a glob says "No such file"
+- **Symptom:** `sudo chmod 600 /var/lib/spendwise/instance/*.sqlite3` → `cannot access '...*.sqlite3'`, yet the files exist. Healthcheck kept showing 7 world-readable warnings.
+- **Cause:** the `*` is expanded by *my* shell (user `ubuntu`) before sudo runs. `/var/lib/spendwise` is `750 spendwise`, so `ubuntu` can't list it → the glob stays literal.
+- **Fix:** `sudo sh -c 'chmod 600 /var/lib/spendwise/instance/*.sqlite3'` so root's shell expands it.
+- **Lesson:** sudo elevates the command, not your shell. The healthcheck permission check caught a fix that silently never happened.
