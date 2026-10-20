@@ -56,3 +56,10 @@
 - **Gap found:** spendwise had `RestartSec=5` with default `StartLimitBurst=5` / `StartLimitIntervalSec=10s`. At most 2 starts fit in 10s, so the limit never trips → infinite restart loop (seen in Drill 1, counter 8+), log spam, and never a clear `failed` state.
 - **Fix:** `Restart=always`; in `[Unit]`: `StartLimitIntervalSec=300`, `StartLimitBurst=10`. Verified: with port 5002 occupied the unit gave up after ~10 tries with `start-limit-hit`. Recovery needs `systemctl reset-failed` + `start`.
 - **Lesson:** `StartLimit*` belongs in `[Unit]` (ignored in `[Service]`). Tune it against `RestartSec`, or it never triggers.
+
+## Week 1 · Drill 9 — Cron job fails silently
+- **Symptom:** `* * * * * root healthcheck.sh` in `/etc/cron.d/` — no output file, no error anywhere. Without `sudo`, `journalctl -u cron` even showed "No entries".
+- **Diagnose:** `sudo journalctl -u cron` → `(root) CMD (healthcheck.sh)` (cron *did* run it) and `No MTA installed, discarding output` (the error was meant to be emailed; no mail system, so it was thrown away). Reproduced with `sudo env -i PATH=/usr/bin:/bin sh -c 'healthcheck.sh'` → `not found`, exit 127.
+- **Cause:** relative command (not on cron's minimal PATH) + no output redirection.
+- **Fix:** installed script to `/usr/local/bin/spendwise-healthcheck`; one `/etc/cron.d/spendwise` with `PATH=`, `MAILTO=""`, absolute paths, `>> log 2>&1` and a `date -Is` stamp; added the log to logrotate.
+- **Gotchas:** use `sudo journalctl` when hunting; `%` in crontab means newline (escape as `\%`); test with `env -i` to mimic cron.
