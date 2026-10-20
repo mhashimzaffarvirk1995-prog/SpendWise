@@ -18,3 +18,13 @@
 - **Diagnose:** `ls -l --time-style=full-iso instance/local-keys.json` → brand-new timestamp while DB files are old; `sha256sum` fingerprint changed → `run.py` silently generated new SECRET_KEY/JWT_SECRET, so old cookies/JWTs no longer verify. New file was created 0600 thanks to `UMask=0077`.
 - **Fix:** extracted `local-keys.json` from the latest nightly backup, verified the fingerprint matched, `install -o spendwise -g spendwise -m 600`, restarted.
 - **Lesson:** silent failures are the worst kind; health checks can't see them. Secrets must be backed up (or live in a secret store) and backups must be tested by actually restoring.
+
+## Week 1 · Drill 4 — kill -9 a single service
+- **Finding:** `ss -ltnp` shows all 9 ports owned by one PID; `ps -T -p <PID>` shows 11 threads. Services are threads inside `run.py`, so one service cannot be killed alone — `kill -9` takes down the whole app (systemd restarts it in 5s, see Step 5).
+- **Lesson:** no fault isolation in the current design. Revisit in Week 3 when each service gets its own container.
+
+## Week 1 · Drill 5 — Wrong file owner
+- **Symptom:** app `active`, healthcheck 0 failed, but budgets cannot be saved: `attempt to write a readonly database`.
+- **Diagnose:** `sudo find /var/lib/spendwise ! -user spendwise` → `budgets.sqlite3` owned by `root:root`.
+- **Fix:** `chown -R spendwise:spendwise /var/lib/spendwise`. Also found every DB was 0644 (world-readable, created before `UMask=0077`) → `chmod 600`.
+- **Lesson:** a directory write test doesn't prove existing files are writable. Added ownership + world-readable checks to `healthcheck.sh`. When restoring files, use `install -o -g -m`, not `cp`.

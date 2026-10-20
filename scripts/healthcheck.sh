@@ -51,6 +51,14 @@ else
   fail "spendwise CANNOT write to $DATA_DIR (disk full / permissions / read-only?)"
 fi
 
+echo "== Ownership & permissions"
+bad_owner=$(find "$DATA_DIR" -xdev ! -user spendwise 2>/dev/null)
+if [[ -z "$bad_owner" ]]; then ok "all files under $DATA_DIR owned by spendwise"
+else while read -r f; do fail "wrong owner: $f ($(stat -c %U:%G "$f"))"; done <<< "$bad_owner"; fi
+world=$(find "$DATA_DIR/instance" -type f -perm /o+r 2>/dev/null)
+if [[ -z "$world" ]]; then ok "no world-readable files in instance/"
+else while read -r f; do warn "world-readable: $f ($(stat -c %a "$f"))"; done <<< "$world"; fi
+
 echo "== LVM free space"
 if [[ $EUID -eq 0 ]] && vfree=$(vgs --noheadings --units g -o vg_free "$VG" 2>/dev/null); then
   ok "$VG free: $(echo "$vfree" | xargs)"
