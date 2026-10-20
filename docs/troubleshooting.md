@@ -63,3 +63,11 @@
 - **Cause:** relative command (not on cron's minimal PATH) + no output redirection.
 - **Fix:** installed script to `/usr/local/bin/spendwise-healthcheck`; one `/etc/cron.d/spendwise` with `PATH=`, `MAILTO=""`, absolute paths, `>> log 2>&1` and a `date -Is` stamp; added the log to logrotate.
 - **Gotchas:** use `sudo journalctl` when hunting; `%` in crontab means newline (escape as `\%`); test with `env -i` to mimic cron.
+
+## Week 1 · Drill 10 — chmod -R 777
+- **Symptom:** none. App `active`, `/login` 200, healthcheck `0 failed` (only WARNs). That's the danger: 777 never breaks anything, so it lives for months.
+- **Impact proven:** as user `nobody`: read `local-keys.json` (164 bytes), created `evil.txt` in `instance/`, opened `auth.sqlite3`.
+- **Fix:** removed unknown files; `find -type d -exec chmod 750`, `find -type f -exec chmod 600`, `instance/` 700 (never `chmod -R 600` — directories need `x`). Verified `nobody` gets `Permission denied`.
+- **Secret rotation:** keys were readable by anyone, so treat them as leaked → stopped app, removed keys, started (new keys generated, 0600 via `UMask`), fingerprint changed. All sessions invalidated (acceptable). Took a fresh backup; older backups contain the burned keys.
+- **Healthcheck:** world-writable files and `local-keys.json` ≠ 600 are now FAIL, not WARN.
+- **Lesson:** "Permission denied" is a signal to find the right owner, never a reason for 777.

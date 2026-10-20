@@ -59,6 +59,16 @@ world=$(find "$DATA_DIR/instance" -type f -perm /o+r 2>/dev/null)
 if [[ -z "$world" ]]; then ok "no world-readable files in instance/"
 else while read -r f; do warn "world-readable: $f ($(stat -c %a "$f"))"; done <<< "$world"; fi
 
+writable=$(find "$DATA_DIR" -xdev -perm /o+w 2>/dev/null)
+if [[ -z "$writable" ]]; then ok "nothing under $DATA_DIR is world-writable"
+else while read -r f; do fail "world-writable: $f ($(stat -c %a "$f"))"; done <<< "$writable"; fi
+keys="$DATA_DIR/instance/local-keys.json"
+if [[ -f "$keys" ]]; then
+  kp=$(stat -c %a "$keys")
+  if [[ "$kp" == "600" ]]; then ok "local-keys.json is 600"
+  else fail "local-keys.json is $kp (must be 600)"; fi
+fi
+
 echo "== LVM free space"
 if [[ $EUID -eq 0 ]] && vfree=$(vgs --noheadings --units g -o vg_free "$VG" 2>/dev/null); then
   ok "$VG free: $(echo "$vfree" | xargs)"
