@@ -43,6 +43,14 @@ for mp in / "$DATA_DIR"; do
   else ok "$mp at ${use}%"; fi
 done
 
+echo "== Data directory writable (as spendwise)"
+probe="$DATA_DIR/.healthcheck-write-test"
+if sudo -u spendwise sh -c "echo ok > '$probe' && rm -f '$probe'" 2>/dev/null; then
+  ok "spendwise can write to $DATA_DIR"
+else
+  fail "spendwise CANNOT write to $DATA_DIR (disk full / permissions / read-only?)"
+fi
+
 echo "== LVM free space"
 if [[ $EUID -eq 0 ]] && vfree=$(vgs --noheadings --units g -o vg_free "$VG" 2>/dev/null); then
   ok "$VG free: $(echo "$vfree" | xargs)"
