@@ -12,3 +12,9 @@
 - **Diagnose:** `df -h /var/lib/spendwise` → 100%. `du -xh --max-depth=1` showed `instance/` only 144K vs 15G total → the space is in a loose file, not a folder. `find /var/lib/spendwise -xdev -type f -size +100M` → `junk.bin` 15G (root-owned).
 - **Fix:** confirmed the file was junk → `rm`. Alternative when you can't delete yet: `lvextend -r -L +4G` from VG free space to buy time.
 - **Lesson:** "healthy" HTTP checks can hide a broken write path. Added a real write test to `healthcheck.sh` (as the `spendwise` user).
+
+## Week 1 · Drill 3 — local-keys.json deleted
+- **Symptom:** after a restart every user is logged out. App `active`, healthcheck 0 failed, no errors in journald.
+- **Diagnose:** `ls -l --time-style=full-iso instance/local-keys.json` → brand-new timestamp while DB files are old; `sha256sum` fingerprint changed → `run.py` silently generated new SECRET_KEY/JWT_SECRET, so old cookies/JWTs no longer verify. New file was created 0600 thanks to `UMask=0077`.
+- **Fix:** extracted `local-keys.json` from the latest nightly backup, verified the fingerprint matched, `install -o spendwise -g spendwise -m 600`, restarted.
+- **Lesson:** silent failures are the worst kind; health checks can't see them. Secrets must be backed up (or live in a secret store) and backups must be tested by actually restoring.
