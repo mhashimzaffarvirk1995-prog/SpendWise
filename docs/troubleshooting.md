@@ -49,3 +49,10 @@
 - **Cause:** the `*` is expanded by *my* shell (user `ubuntu`) before sudo runs. `/var/lib/spendwise` is `750 spendwise`, so `ubuntu` can't list it → the glob stays literal.
 - **Fix:** `sudo sh -c 'chmod 600 /var/lib/spendwise/instance/*.sqlite3'` so root's shell expands it.
 - **Lesson:** sudo elevates the command, not your shell. The healthcheck permission check caught a fix that silently never happened.
+
+## Week 1 · Drill 8 — Crash loops and Restart= semantics
+- **Test A:** two identical transient units, one `exit 0`, one `exit 1`, both `Restart=on-failure`. The `exit 0` unit ran once and stayed down; the `exit 1` unit kept restarting. → `on-failure` ignores clean exits, so an app that exits 0 unexpectedly stays down silently.
+- **Test B:** `Restart=always`, `RestartSec=1`, instant crash → 5 restarts in <10s → `Start request repeated too quickly` → `failed`.
+- **Gap found:** spendwise had `RestartSec=5` with default `StartLimitBurst=5` / `StartLimitIntervalSec=10s`. At most 2 starts fit in 10s, so the limit never trips → infinite restart loop (seen in Drill 1, counter 8+), log spam, and never a clear `failed` state.
+- **Fix:** `Restart=always`; in `[Unit]`: `StartLimitIntervalSec=300`, `StartLimitBurst=10`. Verified: with port 5002 occupied the unit gave up after ~10 tries with `start-limit-hit`. Recovery needs `systemctl reset-failed` + `start`.
+- **Lesson:** `StartLimit*` belongs in `[Unit]` (ignored in `[Service]`). Tune it against `RestartSec`, or it never triggers.
