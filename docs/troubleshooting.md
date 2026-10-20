@@ -35,3 +35,11 @@
 - **Fix:** restored `/etc/fstab.bak`, `findmnt --verify`, `daemon-reload`, `mount -a`, started the service.
 - **What saved us:** `nofail` let the box boot (SSM still reachable). `RequiresMountsFor=/var/lib/spendwise` stopped the app from starting on the empty root-disk folder and creating fresh empty databases there.
 - **Prevention:** after any fstab edit, run `findmnt --verify` and `mount -a` *before* rebooting.
+
+## Week 1 · Drill 7 — Memory leak / OOM-killer
+- **Setup:** a leaking process (`+10 MB / 0.3 s`) run via `systemd-run --property=MemoryMax=200M`.
+- **Symptom:** `systemctl status leaky` → `Failed with result 'oom-kill'`; last log line `190 MB`.
+- **Diagnose:** `journalctl -k | grep -i oom` → `constraint=CONSTRAINT_MEMCG ... oom_memcg=/system.slice/leaky.service ... Killed process 1382`. The kill was limited to that unit's cgroup; `spendwise` stayed active.
+- **Gap found:** `spendwise.service` had no memory limit. A real leak would eat all 7.6 GB, trigger the *global* OOM-killer, and could take out unrelated processes (SSM agent, journald).
+- **Fix:** added `MemoryHigh=512M` (throttle + reclaim) and `MemoryMax=768M` (cgroup OOM → only the app dies → `Restart=on-failure` brings it back).
+- **Lesson:** every long-running service gets a memory ceiling; cgroups turn "the server died" into "the app restarted".

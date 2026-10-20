@@ -15,6 +15,8 @@ Restart=on-failure
 RestartSec=5
 
 # Hardening
+MemoryHigh=512M
+MemoryMax=768M
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
