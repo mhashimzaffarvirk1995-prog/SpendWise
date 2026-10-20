@@ -23,7 +23,7 @@ htmlcov/
 .ruff_cache/
 
 # Flask local runtime files
-instance/
+instance
 *.sqlite
 *.sqlite3
 
@@ -49,3 +49,4 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+instance.bak/
