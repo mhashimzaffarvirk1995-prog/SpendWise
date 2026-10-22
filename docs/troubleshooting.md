@@ -81,3 +81,4 @@
 - **Duplicate `X-Request-ID`:** the app echoes the header and nginx adds it too. Fix: `proxy_hide_header X-Request-ID` + nginx's `add_header … always` (also present on 502s).
 - **Testing HTTPS from the server itself times out:** the SG only allows 443 from my home IP; the server reaching its own public IP counts as outside traffic. Fix: `curl --resolve DOMAIN:443:127.0.0.1` / `openssl s_client -connect 127.0.0.1:443 -servername DOMAIN`.
 - **`sudo diff <(…)` → `/dev/fd/63: No such file`:** process substitution belongs to my shell, sudo can't see it. Fix: `sudo cat FILE | diff - other`.
+- **Healthcheck "failed" but `echo $?` printed 0:** `$?` is the exit code of the *last* command in a pipeline (`grep`, which found text). Fix: run without the pipe, or read `${PIPESTATUS[0]}`; in scripts use `set -o pipefail`.
