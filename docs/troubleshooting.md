@@ -88,3 +88,10 @@
 - **Diagnose:** `journalctl -k | grep apparmor` → `DENIED operation="signal" profile="tcpdump" peer="snap.amazon-ssm-agent.amazon-ssm-agent"`. Shells opened through Session Manager inherit the SSM agent snap's AppArmor label (`cat /proc/self/attr/current`), and tcpdump's profile refuses signals from it — even from root.
 - **Fix:** `sudo systemd-run --wait /usr/bin/kill -INT $(pgrep -x tcpdump)` (sent by PID 1, unconfined). Next time let tcpdump stop itself: `-c N` or `-G 15 -W 1`, and use `-U` so packets are written immediately.
 - **Also proved:** request ID `ea865f6a…` travels nginx → web-app → auth-service and back (401 for a wrong password).
+
+## Week 2 · Drill — 502 vs 504 behind nginx
+- **502 (app stopped):** user sees `502 Bad Gateway`; access log `502 … urt=0.000`; error log `connect() failed (111: Connection refused) while connecting to upstream, upstream: "http://127.0.0.1:8000/login"`; `ss -ltnp 'sport = :8000'` empty; `systemctl is-active spendwise` → inactive. Fix: start the service.
+- **504 (app alive but silent):** `nc -lk 127.0.0.1 8000` accepts but never answers → after exactly `proxy_read_timeout 30s`: `504`, error log `upstream timed out (110: Connection timed out) while reading response header from upstream`.
+- **Rule:** 502 = could not talk to upstream (refused / bad reply). 504 = upstream took too long. Error-log errno tells you which (111 vs 110).
+- **X-Request-ID on errors:** `add_header … always` makes nginx stamp the ID even on 502/504, so a user-reported ID maps straight to the log line.
+- **Rate limiting:** `perip` 10r/s burst 20, `login` 5r/m burst 3 on POST only (map → empty key = no limit for GET). Tests: 8 POSTs → 4×400 + 4×429; 60 parallel GETs → 31×200 + 29×429. Behind an ALB later, `$binary_remote_addr` becomes the ALB's IP → need `real_ip_header X-Forwarded-For` + `set_real_ip_from <ALB subnets>`.
