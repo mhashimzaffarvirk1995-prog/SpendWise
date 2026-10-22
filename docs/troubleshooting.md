@@ -82,3 +82,9 @@
 - **Testing HTTPS from the server itself times out:** the SG only allows 443 from my home IP; the server reaching its own public IP counts as outside traffic. Fix: `curl --resolve DOMAIN:443:127.0.0.1` / `openssl s_client -connect 127.0.0.1:443 -servername DOMAIN`.
 - **`sudo diff <(…)` → `/dev/fd/63: No such file`:** process substitution belongs to my shell, sudo can't see it. Fix: `sudo cat FILE | diff - other`.
 - **Healthcheck "failed" but `echo $?` printed 0:** `$?` is the exit code of the *last* command in a pipeline (`grep`, which found text). Fix: run without the pipe, or read `${PIPESTATUS[0]}`; in scripts use `set -o pipefail`.
+
+## Week 2 · tcpdump that would not die
+- **Symptom:** background `tcpdump` kept running; `timeout`, `sudo pkill -INT`, even `sudo kill -KILL` → `Permission denied`. Leftover tcpdumps held `/tmp/auth.pcap`, so later captures failed (`fs.protected_regular=2`: root can't reopen another user's file in sticky `/tmp`) and reads looked empty (no `-U`, buffered data never flushed).
+- **Diagnose:** `journalctl -k | grep apparmor` → `DENIED operation="signal" profile="tcpdump" peer="snap.amazon-ssm-agent.amazon-ssm-agent"`. Shells opened through Session Manager inherit the SSM agent snap's AppArmor label (`cat /proc/self/attr/current`), and tcpdump's profile refuses signals from it — even from root.
+- **Fix:** `sudo systemd-run --wait /usr/bin/kill -INT $(pgrep -x tcpdump)` (sent by PID 1, unconfined). Next time let tcpdump stop itself: `-c N` or `-G 15 -W 1`, and use `-U` so packets are written immediately.
+- **Also proved:** request ID `ea865f6a…` travels nginx → web-app → auth-service and back (401 for a wrong password).
