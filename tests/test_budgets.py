@@ -1,3 +1,4 @@
+import this_module_does_not_exist
 import importlib.util
 import os
 from pathlib import Path
