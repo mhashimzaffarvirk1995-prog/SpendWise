@@ -71,3 +71,27 @@
 - **Secret rotation:** keys were readable by anyone, so treat them as leaked → stopped app, removed keys, started (new keys generated, 0600 via `UMask`), fingerprint changed. All sessions invalidated (acceptable). Took a fresh backup; older backups contain the burned keys.
 - **Healthcheck:** world-writable files and `local-keys.json` ≠ 600 are now FAIL, not WARN.
 - **Lesson:** "Permission denied" is a signal to find the right owner, never a reason for 777.
+
+## Week 2 · nginx + TLS gotchas
+- **certbot --nginx vs our own config:** certbot wrote its TLS block into the site config; installing our repo config later wiped it. Fix: `certbot certonly --webroot -w /var/www/certbot` + an `/.well-known/acme-challenge/` location; nginx config lives only in the repo. Renewal uses `--deploy-hook "systemctl reload nginx"`.
+- **Public IP changes on stop/start:** the sslip.io name and certificate broke with it. Fix: Elastic IP `52.65.48.147` → `52-65-48-147.sslip.io`.
+- **`unknown directive "http2"`:** `http2 on;` needs nginx ≥ 1.25.1; Ubuntu 24.04 ships 1.24. Fix: `listen 443 ssl http2`. `nginx -t` failed, so the reload never happened and the old config kept serving — but the broken file on disk would have stopped nginx on the next restart. Always `nginx -t && reload`, never plain `restart`.
+- **HSTS header missing:** `add_header` in a `location` cancels *all* server-level `add_header`s. Fix: put HSTS in the same `location`. Verify with `sudo nginx -T`.
+- **Header still missing right after reload:** old workers serve for a moment after `reload`. `sleep 2`, then test.
+- **Duplicate `X-Request-ID`:** the app echoes the header and nginx adds it too. Fix: `proxy_hide_header X-Request-ID` + nginx's `add_header … always` (also present on 502s).
+- **Testing HTTPS from the server itself times out:** the SG only allows 443 from my home IP; the server reaching its own public IP counts as outside traffic. Fix: `curl --resolve DOMAIN:443:127.0.0.1` / `openssl s_client -connect 127.0.0.1:443 -servername DOMAIN`.
+- **`sudo diff <(…)` → `/dev/fd/63: No such file`:** process substitution belongs to my shell, sudo can't see it. Fix: `sudo cat FILE | diff - other`.
+- **Healthcheck "failed" but `echo $?` printed 0:** `$?` is the exit code of the *last* command in a pipeline (`grep`, which found text). Fix: run without the pipe, or read `${PIPESTATUS[0]}`; in scripts use `set -o pipefail`.
+
+## Week 2 · tcpdump that would not die
+- **Symptom:** background `tcpdump` kept running; `timeout`, `sudo pkill -INT`, even `sudo kill -KILL` → `Permission denied`. Leftover tcpdumps held `/tmp/auth.pcap`, so later captures failed (`fs.protected_regular=2`: root can't reopen another user's file in sticky `/tmp`) and reads looked empty (no `-U`, buffered data never flushed).
+- **Diagnose:** `journalctl -k | grep apparmor` → `DENIED operation="signal" profile="tcpdump" peer="snap.amazon-ssm-agent.amazon-ssm-agent"`. Shells opened through Session Manager inherit the SSM agent snap's AppArmor label (`cat /proc/self/attr/current`), and tcpdump's profile refuses signals from it — even from root.
+- **Fix:** `sudo systemd-run --wait /usr/bin/kill -INT $(pgrep -x tcpdump)` (sent by PID 1, unconfined). Next time let tcpdump stop itself: `-c N` or `-G 15 -W 1`, and use `-U` so packets are written immediately.
+- **Also proved:** request ID `ea865f6a…` travels nginx → web-app → auth-service and back (401 for a wrong password).
+
+## Week 2 · Drill — 502 vs 504 behind nginx
+- **502 (app stopped):** user sees `502 Bad Gateway`; access log `502 … urt=0.000`; error log `connect() failed (111: Connection refused) while connecting to upstream, upstream: "http://127.0.0.1:8000/login"`; `ss -ltnp 'sport = :8000'` empty; `systemctl is-active spendwise` → inactive. Fix: start the service.
+- **504 (app alive but silent):** `nc -lk 127.0.0.1 8000` accepts but never answers → after exactly `proxy_read_timeout 30s`: `504`, error log `upstream timed out (110: Connection timed out) while reading response header from upstream`.
+- **Rule:** 502 = could not talk to upstream (refused / bad reply). 504 = upstream took too long. Error-log errno tells you which (111 vs 110).
+- **X-Request-ID on errors:** `add_header … always` makes nginx stamp the ID even on 502/504, so a user-reported ID maps straight to the log line.
+- **Rate limiting:** `perip` 10r/s burst 20, `login` 5r/m burst 3 on POST only (map → empty key = no limit for GET). Tests: 8 POSTs → 4×400 + 4×429; 60 parallel GETs → 31×200 + 29×429. Behind an ALB later, `$binary_remote_addr` becomes the ALB's IP → need `real_ip_header X-Forwarded-For` + `set_real_ip_from <ALB subnets>`.
