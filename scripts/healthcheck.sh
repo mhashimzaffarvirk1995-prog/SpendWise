@@ -6,7 +6,7 @@ set -uo pipefail
 DATA_DIR="${DATA_DIR:-/var/lib/spendwise}"
 VG="${VG:-spendwise-vg}"
 DISK_WARN="${DISK_WARN:-80}"
-CERT_DOMAIN="${CERT_DOMAIN:-}"
+CERT_DOMAIN="${CERT_DOMAIN:-52-65-48-147.sslip.io}"
 CERT_WARN_DAYS="${CERT_WARN_DAYS:-14}"
 
 FAILS=0; WARNS=0
@@ -86,7 +86,7 @@ echo "== TLS certificate"
 if [[ -z "$CERT_DOMAIN" ]]; then
   warn "skipped - set CERT_DOMAIN (TLS arrives in Week 2)"
 else
-  end=$(echo | openssl s_client -connect "$CERT_DOMAIN:443" -servername "$CERT_DOMAIN" 2>/dev/null \
+  end=$(echo | openssl s_client -connect 127.0.0.1:443 -servername "$CERT_DOMAIN" 2>/dev/null \
         | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
   if [[ -z "$end" ]]; then fail "could not read certificate for $CERT_DOMAIN"
   else

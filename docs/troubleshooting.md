@@ -71,3 +71,13 @@
 - **Secret rotation:** keys were readable by anyone, so treat them as leaked → stopped app, removed keys, started (new keys generated, 0600 via `UMask`), fingerprint changed. All sessions invalidated (acceptable). Took a fresh backup; older backups contain the burned keys.
 - **Healthcheck:** world-writable files and `local-keys.json` ≠ 600 are now FAIL, not WARN.
 - **Lesson:** "Permission denied" is a signal to find the right owner, never a reason for 777.
+
+## Week 2 · nginx + TLS gotchas
+- **certbot --nginx vs our own config:** certbot wrote its TLS block into the site config; installing our repo config later wiped it. Fix: `certbot certonly --webroot -w /var/www/certbot` + an `/.well-known/acme-challenge/` location; nginx config lives only in the repo. Renewal uses `--deploy-hook "systemctl reload nginx"`.
+- **Public IP changes on stop/start:** the sslip.io name and certificate broke with it. Fix: Elastic IP `52.65.48.147` → `52-65-48-147.sslip.io`.
+- **`unknown directive "http2"`:** `http2 on;` needs nginx ≥ 1.25.1; Ubuntu 24.04 ships 1.24. Fix: `listen 443 ssl http2`. `nginx -t` failed, so the reload never happened and the old config kept serving — but the broken file on disk would have stopped nginx on the next restart. Always `nginx -t && reload`, never plain `restart`.
+- **HSTS header missing:** `add_header` in a `location` cancels *all* server-level `add_header`s. Fix: put HSTS in the same `location`. Verify with `sudo nginx -T`.
+- **Header still missing right after reload:** old workers serve for a moment after `reload`. `sleep 2`, then test.
+- **Duplicate `X-Request-ID`:** the app echoes the header and nginx adds it too. Fix: `proxy_hide_header X-Request-ID` + nginx's `add_header … always` (also present on 502s).
+- **Testing HTTPS from the server itself times out:** the SG only allows 443 from my home IP; the server reaching its own public IP counts as outside traffic. Fix: `curl --resolve DOMAIN:443:127.0.0.1` / `openssl s_client -connect 127.0.0.1:443 -servername DOMAIN`.
+- **`sudo diff <(…)` → `/dev/fd/63: No such file`:** process substitution belongs to my shell, sudo can't see it. Fix: `sudo cat FILE | diff - other`.
