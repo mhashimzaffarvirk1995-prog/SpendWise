@@ -95,3 +95,13 @@
 - **Rule:** 502 = could not talk to upstream (refused / bad reply). 504 = upstream took too long. Error-log errno tells you which (111 vs 110).
 - **X-Request-ID on errors:** `add_header … always` makes nginx stamp the ID even on 502/504, so a user-reported ID maps straight to the log line.
 - **Rate limiting:** `perip` 10r/s burst 20, `login` 5r/m burst 3 on POST only (map → empty key = no limit for GET). Tests: 8 POSTs → 4×400 + 4×429; 60 parallel GETs → 31×200 + 29×429. Behind an ALB later, `$binary_remote_addr` becomes the ALB's IP → need `real_ip_header X-Forwarded-For` + `set_real_ip_from <ALB subnets>`.
+
+## Week 3 · Containers
+- **Worker marked unhealthy:** recurring-worker reused the web image's HTTP healthcheck but serves no HTTP. Fix: heartbeat file touched every 15 s while the thread is alive; `--health-cmd` checks it is < 60 s old; worker exits 1 if the thread dies so the restart policy revives it.
+- **`kill -9` on a container PID → Permission denied:** AppArmor `docker-default` refuses signals from the SSM-agent snap label (`journalctl -k | grep apparmor`). Use `sudo systemd-run --wait /usr/bin/kill -9 <pid>`.
+- **Exit 137:** 128 + 9 (SIGKILL). `docker inspect -f '{{.State.OOMKilled}}'` says *why*: true = memory limit (`--memory 64m` drill, kernel "Memory cgroup out of memory", UID 999), false = killed by someone.
+- **Crash loop on missing env var:** budget-service without `BUDGET_DATABASE_URL` → `KeyError` → `--restart on-failure:5` stopped after 5 tries (`Exited (1)`). Find it with `docker logs`; list env *names* with `docker inspect … .Config.Env | cut -d= -f1` (values include secrets — anyone with Docker access can read them).
+- **Builds but doesn't run:** Dockerfile without `COPY common/` builds fine, then `ModuleNotFoundError: No module named 'common'`. Read tracebacks bottom-up. Prevention: `scripts/docker-smoke.sh` (caught it, exit 1).
+- **`gunicorn [ERROR] Error handling request (no URI read)`:** a client opened a connection and sent nothing (browser pre-connect / port-forward). Harmless, but shows sync workers can be tied up by idle clients — keep a proxy in front or use gthread workers.
+- **PyJWT CRITICAL CVE:** Trivy on the slim images → PyJWT 2.13.0 (CVE-2026-102268 + 6 HIGH). Bumped to 2.14.0 everywhere, tests OK, rebuilt, scan gate PASS — and patched the running systemd app in /opt too.
+- **Pasted lines with leading spaces → `IndentationError`** in a `python -c` block; prefer one-line commands or heredocs.
