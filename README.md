@@ -1,130 +1,371 @@
+<div align="center">
+
 # SpendWise
 
-A personal finance tracker built as **nine Flask microservices** — and a hands-on DevOps project that takes it from `python run.py` on a laptop to production-grade AWS, one week at a time.
+**A personal finance tracker built as nine Flask microservices, and a 26-week, hands-on DevOps journey that takes it from `python run.py` on a laptop to production-grade AWS.**
+
+[![CI](https://github.com/mhashimzaffarvirk1995-prog/SpendWise/actions/workflows/ci.yml/badge.svg)](https://github.com/mhashimzaffarvirk1995-prog/SpendWise/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/flask-microservices-000000?logo=flask&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-multi--stage%20%7C%20non--root-2496ED?logo=docker&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-EC2%20%7C%20SSM-FF9900?logo=amazonaws&logoColor=white)
+![nginx](https://img.shields.io/badge/nginx-TLS%201.3%20%7C%20HTTP%2F2-009639?logo=nginx&logoColor=white)
+![Roadmap](https://img.shields.io/badge/roadmap-week%203%20of%2026-blueviolet)
 
 ![SpendWise dashboard](app-frontend.png)
 
-[![CI](https://github.com/mhashimzaffarvirk1995-prog/SpendWise/actions/workflows/ci.yml/badge.svg)](https://github.com/mhashimzaffarvirk1995-prog/SpendWise/actions/workflows/ci.yml)
+</div>
 
-**What the app does:** sign up, track income and expenses, set monthly category budgets with alerts, see monthly reports and CSV exports, schedule recurring entries, track savings goals, and import transactions from CSV. Password hashing, JWT authentication and CSRF protection are built in.
+---
 
-**What the DevOps project adds:** an AWS workbench managed only through Session Manager, LVM storage, a hardened systemd service, nginx with Let's Encrypt TLS, rate limiting and request tracing, per-service Docker images with security and smoke gates, CI on every push, and a written troubleshooting log for every failure found along the way.
+## Table of contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Testing and CI](#testing-and-ci)
+- [DevOps journey: week by week](#devops-journey-week-by-week)
+- [Troubleshooting log highlights](#troubleshooting-log-highlights)
+- [Security practices](#security-practices)
+- [Repository layout](#repository-layout)
+- [Documentation](#documentation)
+- [Git workflow](#git-workflow)
+- [Roadmap](#roadmap)
+- [Application features](#application-features)
+
+---
+
+## Overview
+
+**The app.** Sign up, record income and expenses, set monthly budgets per category and get alerts as you approach them, view monthly reports and export CSV, schedule recurring entries, track savings goals, and import transactions from a CSV file. Passwords are hashed, sessions use JWTs, and forms are CSRF-protected.
+
+**The DevOps project.** The app is the workload; the real product is the platform around it. Every week adds one layer of production practice, ships it through a reviewed pull request, tags a release, and records every failure in a troubleshooting log.
+
+| Done so far | |
+|---|---|
+| Cloud | AWS workbench with budgets and alerts, EC2 managed only through Session Manager (no SSH, no key pairs) |
+| Linux | LVM data volume, hardened non-root systemd service, backups with a tested restore, cron, logrotate, firewall, fail2ban |
+| Networking | nginx reverse proxy, Let's Encrypt TLS 1.3 with HTTP/2 and HSTS, rate limiting, end-to-end request IDs, VPC CIDR plan |
+| Containers | One image per service, gunicorn, multi-stage non-root builds (**1.68 GB to about 240 MB**), private network, named volumes |
+| Quality gates | GitHub Actions CI, Trivy vulnerability gate, container smoke-test gate, 32-check host verification script |
+| Operations | 20+ break-and-fix drills, each written up as symptom, cause, fix and prevention |
 
 ---
 
 ## Architecture
 
-~~~
-Browser ──HTTPS──▶ nginx (TLS 1.3, HTTP/2, rate limits, X-Request-ID)
-                     │
-                     ▼
-                  web-app ──▶ auth · transaction · budget · notification · reporting
-                                · recurring (+ worker) · savings · import
-                     each service owns its own database; services talk only over HTTP APIs
-~~~
+```mermaid
+flowchart LR
+    U([Browser]) -->|HTTPS 443| N[nginx<br/>TLS 1.3 · HTTP/2<br/>rate limits · X-Request-ID]
+    N -->|HTTP| W[web-app :8000]
+    W --> A[auth :5001]
+    W --> T[transaction :5002]
+    W --> B[budget :5003]
+    W --> NO[notification :5004]
+    W --> R[reporting :5005]
+    W --> RC[recurring :5006]
+    W --> S[savings :5007]
+    W --> I[import :5008]
+    B --> T
+    NO --> B
+    R --> T
+    R --> B
+    RC --> T
+    WK[recurring worker] --> T
+    I --> T
+```
 
-| Port | Service | Database | Calls |
+| Port | Service | Owns database | Calls |
 |---|---|---|---|
-| 8000 | web-app (browser UI) | — | all services |
-| 5001 | auth-service | `auth.sqlite3` | — |
-| 5002 | transaction-service | `transactions.sqlite3` | — |
+| 8000 | web-app (browser UI) | none | all services |
+| 5001 | auth-service | `auth.sqlite3` | none |
+| 5002 | transaction-service | `transactions.sqlite3` | none |
 | 5003 | budget-service | `budgets.sqlite3` | transaction |
 | 5004 | notification-service | `notifications.sqlite3` | budget |
-| 5005 | reporting-service | — (stateless) | transaction, budget |
+| 5005 | reporting-service | none (stateless) | transaction, budget |
 | 5006 | recurring-service + worker | `recurring.sqlite3` | transaction |
-| 5007 | savings-service | `savings.sqlite3` | — |
+| 5007 | savings-service | `savings.sqlite3` | none |
 | 5008 | import-service | `imports.sqlite3` | transaction |
 
-- **Service-owned databases:** no service reads another service's database.
-- **Auth:** auth-service issues a JWT at login; every backend verifies it locally with the shared `JWT_SECRET`.
-- **Tracing:** one `X-Request-ID` follows a request from nginx through every service — see [request flow](docs/request-flow-local.md).
+Design rules:
 
-More: [architecture](docs/architecture.md) · [service-by-service request flow](docs/request-flow-local.md) · [API reference](docs/API.md)
+- **Database per service.** No service reads another service's database; they talk only over HTTP APIs.
+- **Stateless auth.** auth-service issues a JWT at login; every backend verifies it locally with the shared `JWT_SECRET`.
+- **Traceable requests.** nginx creates an `X-Request-ID`, and every service logs and forwards it, so one ID follows a request across all hops ([walkthrough](docs/request-flow-local.md)).
+- **Web and worker split.** In containers, the recurring scheduler runs as its own worker process, so scaling the API never duplicates scheduled jobs.
+
+In Docker, every service listens on port `8080` inside its container and is reached by name on a private network (for example `http://budget-service:8080`). Only the web app is published, on `127.0.0.1:9000`.
 
 ---
 
-## Run it
+## Tech stack
 
-### 1. Local (Python)
-Requires Python 3.10+.
-~~~bash
+| Layer | Tools |
+|---|---|
+| Application | Python 3.12, Flask, SQLite, PyJWT, gunicorn |
+| Cloud | AWS EC2 (Ubuntu 24.04), Systems Manager Session Manager, Elastic IP, Security Groups, AWS Budgets |
+| Host | LVM, systemd, cron, logrotate, ufw, fail2ban, AppArmor |
+| Edge | nginx, Let's Encrypt (certbot), sslip.io DNS |
+| Containers | Docker CE, multi-stage Dockerfile, user-defined bridge network, named volumes |
+| Quality and security | GitHub Actions, unittest, Trivy, smoke tests, branch protection |
+| Coming next | PostgreSQL, Redis, Docker Compose, ECR, Terraform, Ansible, Kubernetes, Argo CD, Prometheus, Grafana |
+
+---
+
+## Quick start
+
+### Option 1: Local Python (fastest)
+
+Requires Python 3.10 or newer.
+
+```bash
+git clone https://github.com/mhashimzaffarvirk1995-prog/SpendWise.git
+cd SpendWise
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python run.py            # http://localhost:8000 — Ctrl+C stops all nine services
-~~~
-Data and auto-generated signing keys live in `instance/`. Optional settings: copy `.env.example` to `.env`.
+python run.py
+```
 
-### 2. Docker (one container per service)
-~~~bash
-scripts/docker-build.sh dev        # build 9 images (tagged dev + git SHA)
-scripts/docker-smoke.sh dev        # every image must become healthy
-scripts/docker-scan.sh dev         # Trivy gate: fails on any CRITICAL CVE
-scripts/docker-run-local.sh dev    # network + volumes + 10 containers → http://127.0.0.1:9000
-~~~
-The run script expects an env file at `~/spendwise-docker.env` with `SECRET_KEY`, `JWT_SECRET` and the `*_SERVICE_URL` values (`http://<service>:8080`). Details: [docs/docker.md](docs/docker.md).
+Open <http://localhost:8000>. `Ctrl+C` stops all nine services. Data and auto-generated signing keys are stored in `instance/` (git-ignored).
 
-### 3. Server (systemd + nginx)
-The workbench runs SpendWise as a hardened systemd unit behind nginx with TLS:
-`deploy/systemd/`, `deploy/nginx/`, `deploy/cron/`, `deploy/logrotate/`, `deploy/hardening/`. Health check: `scripts/healthcheck.sh` (exit 1 on any failure).
+### Option 2: Docker (one container per service)
 
-### Tests
-~~~bash
-.venv/bin/python -m unittest discover -s tests
-~~~
-GitHub Actions runs the same tests on every `week-*` push and every pull request to `main`.
+Requires Docker. Create the env file first (see [Configuration](#configuration)), then:
+
+```bash
+scripts/docker-build.sh dev       # build 9 images, tagged "dev" and the git SHA
+scripts/docker-smoke.sh dev       # gate: every image must start and report healthy
+scripts/docker-scan.sh dev        # gate: fails on any CRITICAL vulnerability (Trivy)
+scripts/docker-run-local.sh dev   # network + volumes + 10 containers
+```
+
+Open <http://127.0.0.1:9000>. Check status with:
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+```
+
+More detail in [docs/docker.md](docs/docker.md).
+
+### Option 3: Server (systemd + nginx)
+
+This is how the AWS workbench runs it today. Ready-to-install files:
+
+| Path | What it is |
+|---|---|
+| [`deploy/systemd/spendwise.service`](deploy/systemd/spendwise.service) | Non-root unit with restart limits, memory caps, `UMask=0077`, and a mount dependency on the data volume |
+| [`deploy/nginx/`](deploy/nginx/) | TLS site config and shared proxy snippet (headers, timeouts, request ID) |
+| [`deploy/cron/spendwise`](deploy/cron/spendwise) | Nightly backup and periodic health check |
+| [`deploy/logrotate/spendwise`](deploy/logrotate/spendwise) | Log rotation and compression |
+| [`deploy/hardening/`](deploy/hardening/) | sshd drop-in and firewall/fail2ban setup script |
+| [`scripts/healthcheck.sh`](scripts/healthcheck.sh) | Checks service, ports, disk, backups and certificate expiry; exits 1 on any failure |
 
 ---
 
-## DevOps roadmap progress
+## Configuration
 
-A 26-week, AWS-first plan. Each week ships something real, is merged through a reviewed PR, and is tagged.
+Local runs need no configuration: secrets are generated on first start. For other setups, copy the example file:
 
-| Week | Theme | Highlights | Tag |
+```bash
+cp .env.example .env
+```
+
+The Docker scripts read `~/spendwise-docker.env` (kept outside the repository, mode `600`) with:
+
+| Variable | Purpose |
+|---|---|
+| `SECRET_KEY` | Flask session and CSRF signing |
+| `JWT_SECRET` | Signs and verifies login tokens, shared by all services |
+| `APP_ENV` | Environment name |
+| `SESSION_COOKIE_SECURE` | `false` for plain HTTP on localhost, `true` behind TLS |
+| `*_SERVICE_URL` | Where each service lives, for example `http://auth-service:8080` |
+
+Never commit real secrets. `instance/` and `.env` are git-ignored.
+
+---
+
+## Testing and CI
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m unittest discover -s tests -v
+```
+
+[GitHub Actions](.github/workflows/ci.yml) runs the same tests on Python 3.12 for every push to a `week-*` branch and every pull request to `main`. `main` is protected, so code reaches it only through a pull request with passing checks.
+
+Extra gates run before a release:
+
+| Gate | Command | Fails when |
+|---|---|---|
+| Unit tests | `python -m unittest discover -s tests` | any test fails |
+| Image scan | `scripts/docker-scan.sh <tag>` | any CRITICAL CVE in an image |
+| Smoke test | `scripts/docker-smoke.sh <tag>` | any image does not become healthy |
+| Host verification | `scripts/verify-week01.sh` | any of the 32 host checks fails |
+| Health check | `scripts/healthcheck.sh` | service, port, disk, backup or certificate problem |
+
+---
+
+## DevOps journey: week by week
+
+Each week ends with documentation, a troubleshooting log entry for every failure, a pull request, a merge and a release tag.
+
+| Week | Theme | Tag | Status |
 |---|---|---|---|
-| 0 | AWS workbench | budgets & alerts, EC2 via Session Manager only (no SSH, no open ports), baseline architecture doc | `v0.1-baseline` |
-| 1 | Linux administration | LVM data volume grown online, non-root hardened systemd unit (restart limits, memory caps), nightly SQLite backups + restore test, cron + logrotate, ufw / sshd / fail2ban, `healthcheck.sh`, 10 break-and-fix drills (32 automated checks) | `v0.2-week01` |
-| 2 | Networking + Git | nginx reverse proxy, Elastic IP + Let's Encrypt (TLS 1.3, HTTP/2, HSTS), request IDs end to end, rate limiting, 502 vs 504 drills, network tools, VPC CIDR plan, first CI workflow | `v0.3-week02` |
-| 3 | Docker | gunicorn + `wsgi.py` per service, separate recurring worker, multi-stage non-root images (1.68 GB → ~240 MB), custom network + volumes, Trivy gate (fixed a CRITICAL PyJWT CVE), smoke-test gate, fault-isolation and OOM drills | `v0.4-week03` |
-| 4 | Postgres, Redis, Compose | *next* | |
+| 0 | AWS workbench and baseline | [`v0.1-baseline`](../../releases/tag/v0.1-baseline) | Done |
+| 1 | Linux system administration | [`v0.2-week01`](../../releases/tag/v0.2-week01) | Done |
+| 2 | Networking, TLS and Git workflow | [`v0.3-week02`](../../releases/tag/v0.3-week02) | Done |
+| 3 | Docker | [`v0.4-week03`](../../releases/tag/v0.4-week03) | Done |
+| 4 | PostgreSQL, Redis and Docker Compose | | Next |
 
-Coming up: AWS core (IAM, VPC, RDS, ECS), Terraform, Ansible, CI/CD with Jenkins and GitHub Actions, Kubernetes (k3s → EKS), Rancher, GitOps (Argo CD, Flux), observability (Prometheus, Grafana, Loki, OpenTelemetry), DevSecOps and SRE.
+### Week 0: AWS workbench and baseline
+
+Goal: a safe, cheap, auditable place to work, and a clear picture of the app before changing anything.
+
+- **Cost guardrails first.** AWS Budgets with email alerts on total credit usage and on monthly spend, so nothing surprising happens on the bill.
+- **One region.** All resources in `ap-southeast-2` (Sydney), matching the organisation's service control policy.
+- **EC2 without SSH.** Ubuntu 24.04 instance managed only through **Systems Manager Session Manager**: no key pair, no port 22, every session logged. The local AWS CLI uses short-lived browser login, not long-lived access keys.
+- **Baseline.** The app runs locally, the architecture is documented ([architecture.md](docs/architecture.md)), and the starting point is tagged `v0.1-baseline`.
+
+### Week 1: Linux system administration
+
+Goal: run SpendWise on a server the way a careful admin would, then break it on purpose and fix it.
+
+- **Storage.** App data lives on its own **LVM** logical volume (`/var/lib/spendwise`), grown online without downtime. The unit refuses to start if the volume is not mounted.
+- **Least privilege.** A dedicated `spendwise` system user and code in `/opt/spendwise`. Signing keys are mode `0600` ([why](docs/week-01.md)).
+- **Hardened systemd unit.** `Restart=always` with start-rate limits, `MemoryHigh`/`MemoryMax` caps, `UMask=0077`, filesystem protections and a dependency on the data mount.
+- **Backups that are tested.** Nightly SQLite backups via cron ([backup.sh](scripts/backup.sh)) and a real restore test.
+- **Housekeeping.** logrotate for app logs; cron jobs log their output so failures are visible.
+- **Host security.** ufw firewall, hardened sshd drop-in and fail2ban.
+- **Health and verification.** [healthcheck.sh](scripts/healthcheck.sh) and [verify-week01.sh](scripts/verify-week01.sh) (32 automated checks).
+- **10 break-and-fix drills:** port already in use, data disk 100% full, deleted signing key, `kill -9` of one service, wrong file owner, bad `/etc/fstab` entry, memory leak and the OOM killer, crash loops and `Restart=` semantics, a cron job failing silently, and `chmod -R 777`.
+
+### Week 2: Networking, TLS and Git workflow
+
+Goal: put a real front door on the app and understand every hop a request takes.
+
+- **Reverse proxy.** nginx terminates traffic on 80/443 and proxies to the app on localhost only ([config](deploy/nginx/)).
+- **Stable address and real TLS.** An Elastic IP plus an `sslip.io` hostname; Let's Encrypt certificate via `certbot --webroot` with a deploy hook that reloads nginx on renewal. TLS 1.3, HTTP/2, HSTS and HTTP-to-HTTPS redirect.
+- **Edge protection.** Request rate limits per client IP; the Security Group only opens 443 to known address ranges.
+- **Request tracing.** nginx generates `X-Request-ID`, every service logs and forwards it ([request flow](docs/request-flow-local.md)).
+- **Networking toolkit.** `curl`, `dig`, `traceroute`, `openssl s_client`, `ss` and `tcpdump`, each used to answer one concrete question ([network-tools.md](docs/network-tools.md)).
+- **Cloud network design.** A VPC plan of `10.0.0.0/16` split into six `/20` subnets across availability zones ([cidr-plan.md](docs/cidr-plan.md)).
+- **Git workflow.** Branch per week, protected `main`, pull requests, first [GitHub Actions](.github/workflows/ci.yml) pipeline.
+- **Drills:** 502 Bad Gateway versus 504 Gateway Timeout behind nginx, plus TLS and tcpdump gotchas.
+
+### Week 3: Docker
+
+Goal: package every service as a small, secure, independently running container.
+
+- **Production server.** Each service gets a `wsgi.py` and runs under **gunicorn** (`--preload`, 2 workers) instead of the Flask dev server.
+- **Separate worker.** The recurring scheduler moves into its own process with a heartbeat file, so its health is checked by liveness, not by an HTTP port it does not have.
+- **One multi-stage Dockerfile** for all services ([Dockerfile](services/Dockerfile)): a builder stage compiles wheels, the slim runtime stage installs them and runs as a **non-root user**, with a built-in `HEALTHCHECK`. Image size went from **1.68 GB** (naive, [Dockerfile.naive](services/Dockerfile.naive)) to **about 200 to 240 MB**.
+- **Traceable images.** Every image is tagged with a name and the git SHA (`-dirty` if uncommitted changes exist) and carries the OCI `revision` label.
+- **Networking and state.** A user-defined bridge network gives each container a DNS name; each stateful service gets its own named volume, so data survives container replacement.
+- **Gates.** [Trivy scan](scripts/docker-scan.sh) fails the build on CRITICAL CVEs (it caught one in PyJWT, fixed by upgrading to 2.14.0). [Smoke test](scripts/docker-smoke.sh) starts each image alone and requires it to become healthy.
+- **Drills:** fault isolation (one container down, the rest keep serving), OOM kill (exit code 137), `on-failure:5` crash loop, an image that builds but does not run, a worker inheriting the wrong health check, and AppArmor blocking `kill` from a confined shell.
+
+---
+
+## Troubleshooting log highlights
+
+The full log is in [docs/troubleshooting.md](docs/troubleshooting.md). Each entry follows the same format: **symptom, how it was diagnosed, root cause, fix, and how to prevent it.** A few favourites:
+
+| Problem | Root cause | Lesson |
+|---|---|---|
+| Service kept restarting, then stopped for good | systemd start-rate limit reached | `Restart=always` is not infinite; tune `StartLimit*` and alert on failure |
+| Data volume missing after an fstab edit | Typo in an `/etc/fstab` entry | Use `nofail` for non-root mounts and test with `mount -a` before rebooting |
+| Cron job failed silently | Its output and errors went nowhere | Use absolute paths and send cron output to a log you check |
+| 502 versus 504 from nginx | App down (connection refused) versus app too slow (timeout) | The status code tells you which side to look at |
+| Container exited with code 137 | Kernel OOM killer at the memory limit | Set limits deliberately and watch memory before raising them |
+| Scan gate failed | CRITICAL CVE in a pinned PyJWT version | Pin versions, but scan them on every build |
+
+---
+
+## Security practices
+
+- No SSH keys or open SSH port; server access is through Session Manager with an audit trail.
+- Short-lived AWS credentials on the workstation; no access keys in the repository or on the server.
+- Secrets kept out of git (`instance/`, `.env`, `~/spendwise-docker.env` with mode `600`).
+- App and containers run as non-root users; signing keys are mode `0600`; `UMask=0077` on the service.
+- TLS 1.3 with HSTS; only port 80 (redirect and certificate renewal) is public, and 443 is limited to known ranges.
+- Rate limiting at the edge; fail2ban and ufw on the host.
+- Dependencies pinned and scanned; builds fail on CRITICAL vulnerabilities.
+- `main` is protected: changes land only through pull requests with passing CI.
+
+---
+
+## Repository layout
+
+```text
+SpendWise/
+├── services/
+│   ├── <name>-service/      # app.py, wsgi.py, requirements.txt per service
+│   ├── web-app/             # browser UI
+│   ├── common/              # shared helpers
+│   ├── Dockerfile           # one multi-stage, non-root Dockerfile for all services
+│   ├── Dockerfile.naive     # the "before" image, kept for comparison
+│   └── .dockerignore
+├── deploy/                  # systemd, nginx, cron, logrotate, hardening
+├── scripts/                 # healthcheck, backup, verify, docker build/run/smoke/scan, log-table
+├── docs/                    # architecture, weekly notes, runbooks, troubleshooting log
+├── tests/                   # unit tests
+├── .github/workflows/ci.yml # CI pipeline
+├── run.py                   # local launcher: all services in one command
+└── requirements*.txt
+```
 
 ---
 
 ## Documentation
 
-| Doc | What's inside |
+| Document | What's inside |
 |---|---|
-| [architecture.md](docs/architecture.md) | services, ports, databases, call graph |
-| [week-01.md](docs/week-01.md) | Linux notes, e.g. why `local-keys.json` must be 0600 |
-| [request-flow-local.md](docs/request-flow-local.md) | one transaction traced hop by hop |
-| [network-tools.md](docs/network-tools.md) | curl, dig, traceroute, openssl, ss, tcpdump — one question each |
+| [architecture.md](docs/architecture.md) | Services, ports, databases and the call graph |
+| [API.md](docs/API.md) | Backend API reference |
+| [week-01.md](docs/week-01.md) | Linux notes, such as why the key file must be `0600` |
+| [request-flow-local.md](docs/request-flow-local.md) | One "add transaction" request traced hop by hop |
+| [network-tools.md](docs/network-tools.md) | curl, dig, traceroute, openssl, ss, tcpdump: one question each |
 | [cidr-plan.md](docs/cidr-plan.md) | VPC subnet plan for AWS |
-| [docker.md](docs/docker.md) | images, tags, scans, smoke tests, container drills |
-| [troubleshooting.md](docs/troubleshooting.md) | every failure found so far: symptom → cause → fix |
-| [API.md](docs/API.md) | backend API reference |
-
-## Repository layout
-
-~~~
-services/<name>/        app.py, wsgi.py, requirements.txt (one folder per service)
-services/common/        shared helpers
-services/Dockerfile     one multi-stage Dockerfile for all services
-deploy/                 systemd, nginx, cron, logrotate, hardening
-scripts/                healthcheck, backup, docker build/run/smoke/scan, verify, log-table
-.github/workflows/      CI
-docs/                   notes, runbooks, troubleshooting log
-tests/                  unit tests
-run.py                  local launcher (all services in one process)
-~~~
+| [docker.md](docs/docker.md) | Run model, image design, tags, scans, smoke tests, proof |
+| [troubleshooting.md](docs/troubleshooting.md) | Every failure so far: symptom, cause, fix, prevention |
 
 ---
 
-## Features in detail
+## Git workflow
+
+```text
+week-NN branch ──► push (CI runs) ──► pull request to main ──► review + green CI ──► merge ──► tag vX.Y-weekNN
+```
+
+- One branch per week (`week-01`, `week-02`, ...).
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `fix(security):`).
+- Tags are created on the merge commit on `main`, so every tag matches exactly what was reviewed.
+
+---
+
+## Roadmap
+
+| Phase | Weeks | Topics |
+|---|---|---|
+| Foundations | 0 to 3 | AWS workbench, Linux, networking, TLS, Git, Docker (**done**) |
+| Data and packaging | 4 | PostgreSQL, Redis, Docker Compose, migrations, backup and restore, Amazon ECR |
+| AWS core | next | IAM, VPC, RDS, ECS |
+| Infrastructure as code | | Terraform, Ansible |
+| CI/CD | | GitHub Actions pipelines, Jenkins |
+| Kubernetes | | k3s, then EKS, Helm, Rancher |
+| GitOps | | Argo CD, Flux |
+| Observability | | Prometheus, Grafana, Loki, OpenTelemetry |
+| DevSecOps and SRE | | Supply-chain security, SLOs, incident response |
+
+---
+
+## Application features
 
 <details>
-<summary>Budgets, notifications, reports, recurring transactions, savings, CSV import and interface</summary>
+<summary><b>Budgets, notifications, reports, recurring transactions, savings, CSV import and interface</b></summary>
 
 ### Monthly budgets
 
