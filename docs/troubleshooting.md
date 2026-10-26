@@ -105,3 +105,9 @@
 - **`gunicorn [ERROR] Error handling request (no URI read)`:** a client opened a connection and sent nothing (browser pre-connect / port-forward). Harmless, but shows sync workers can be tied up by idle clients — keep a proxy in front or use gthread workers.
 - **PyJWT CRITICAL CVE:** Trivy on the slim images → PyJWT 2.13.0 (CVE-2026-102268 + 6 HIGH). Bumped to 2.14.0 everywhere, tests OK, rebuilt, scan gate PASS — and patched the running systemd app in /opt too.
 - **Pasted lines with leading spaces → `IndentationError`** in a `python -c` block; prefer one-line commands or heredocs.
+
+## Week 4 · Postgres
+- **Migration failed: `failed to resolve host 'pg-lab'`:** the instance was stopped/started (journalctl: clean `shutdown.target`, no unattended-upgrades). The Week 3 containers came back (`--restart unless-stopped`), but `pg-lab` had `restart=no`, so it stayed `Exited (0)`. Docker DNS only resolves *running* containers, so the name vanished. Diagnose: `docker ps -a`, `docker inspect -f '{{.State.ExitCode}} {{.HostConfig.RestartPolicy.Name}}'`, `docker logs` (`received fast shutdown request` = clean SIGTERM). Fix: `docker update --restart unless-stopped pg-lab && docker start pg-lab`. Prevention: give every long-running container a restart policy; check `pg_isready` before scripts; Compose `depends_on: service_healthy`.
+- **Long Python tracebacks:** read the last line first; pipe batch jobs through `2>&1 | tail -n 4` so each item shows only its result.
+- **Test data collided with real IDs:** a test sign-up in Postgres took `id=1`, which the migration also needed. Fix: drop and recreate the database (`pg-init.sh` is idempotent). Lesson: test in a throwaway database, or clean up before migrating.
+- **Sequences after copying IDs:** inserting explicit `id`s leaves the `serial` counter at 1, so the next insert would collide. The migration runs `setval(pg_get_serial_sequence(...), MAX(id)+1, false)` for integer `id` tables.
