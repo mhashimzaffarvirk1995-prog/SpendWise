@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import jwt
+import redis
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
@@ -278,6 +279,23 @@ def build_charts(transactions):
 def start_request_context():
     g.request_id = request.headers.get("X-Request-ID", str(uuid4()))
     g.request_started_at = datetime.now(timezone.utc)
+
+
+REDIS_URL = os.getenv("REDIS_URL")
+report_cache = redis.Redis.from_url(REDIS_URL, socket_timeout=0.2, socket_connect_timeout=0.2) if REDIS_URL else None
+
+
+@app.after_request
+def invalidate_reports(response):
+    """A successful write changes this user's numbers: bump their report generation."""
+    if report_cache is not None and request.method in ("POST", "PUT", "DELETE") and response.status_code < 400:
+        user_id = get_current_user_id()
+        if user_id:
+            try:
+                report_cache.incr(f"report-gen:{user_id}")
+            except redis.RedisError as error:
+                app.logger.warning("Report cache invalidation failed: %s", type(error).__name__)
+    return response
 
 
 @app.after_request

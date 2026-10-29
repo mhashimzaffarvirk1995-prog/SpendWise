@@ -47,6 +47,15 @@ def cache_set(key, value):
         app.logger.warning('Report cache write failed: %s', type(error).__name__)
 
 
+def report_generation(user_id):
+    if cache is None:
+        return 0
+    try:
+        return int(cache.get(f'report-gen:{user_id}') or 0)
+    except (redis.RedisError, ValueError):
+        return 0
+
+
 def authenticated(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -163,7 +172,7 @@ def monthly_report():
         month = selected_month()
     except ValueError as error:
         return jsonify(error=str(error)), 400
-    cache_key = f'report:{g.user_id}:{month}'
+    cache_key = f'report:{g.user_id}:{month}:g{report_generation(g.user_id)}'
     cached = cache_get(cache_key)
     if cached is not None:
         g.cache = 'HIT'
