@@ -1,6 +1,7 @@
 """Read-only monthly reports generated from authenticated service APIs."""
 import csv
 import io
+import json
 import os
 import re
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from functools import wraps
 from uuid import uuid4
 
 import jwt
+import redis
 import requests
 from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, request
@@ -20,6 +22,29 @@ TRANSACTION_SERVICE_URL = os.getenv('TRANSACTION_SERVICE_URL', 'http://127.0.0.1
 BUDGET_SERVICE_URL = os.getenv('BUDGET_SERVICE_URL', 'http://127.0.0.1:5003').rstrip('/')
 TIMEOUT = float(os.getenv('SERVICE_TIMEOUT_SECONDS', '5'))
 CENT = Decimal('0.01')
+REDIS_URL = os.getenv('REDIS_URL')  # e.g. redis://redis:6379/0 ; unset = cache off
+REPORT_CACHE_TTL = int(os.getenv('REPORT_CACHE_TTL_SECONDS', '300'))
+cache = redis.Redis.from_url(REDIS_URL, socket_timeout=0.2, socket_connect_timeout=0.2) if REDIS_URL else None
+
+
+def cache_get(key):
+    if cache is None:
+        return None
+    try:
+        raw = cache.get(key)
+        return json.loads(raw) if raw else None
+    except (redis.RedisError, ValueError) as error:
+        app.logger.warning('Report cache read failed: %s', type(error).__name__)
+        return None
+
+
+def cache_set(key, value):
+    if cache is None:
+        return
+    try:
+        cache.set(key, json.dumps(value), ex=REPORT_CACHE_TTL)
+    except redis.RedisError as error:
+        app.logger.warning('Report cache write failed: %s', type(error).__name__)
 
 
 def authenticated(view):
@@ -49,6 +74,8 @@ def request_context():
 def response_context(response):
     response.headers['X-Request-ID'] = g.request_id
     response.headers['Cache-Control'] = 'no-store'
+    if g.get('cache'):
+        response.headers['X-Cache'] = g.cache
     return response
 
 
@@ -136,6 +163,12 @@ def monthly_report():
         month = selected_month()
     except ValueError as error:
         return jsonify(error=str(error)), 400
+    cache_key = f'report:{g.user_id}:{month}'
+    cached = cache_get(cache_key)
+    if cached is not None:
+        g.cache = 'HIT'
+        return jsonify(cached)
+    g.cache = 'MISS' if cache is not None else None
     try:
         transactions = load_transactions()
         rows = [row for row in transactions if row['month'] == month]
@@ -165,10 +198,13 @@ def monthly_report():
             raise ValueError()
     except (requests.RequestException, ValueError, KeyError, TypeError):
         budget_error = 'Budget comparison is unavailable. Transaction totals are still shown.'
-    return jsonify(month=month, summary=summary, previous_month=previous, previous_summary=earlier,
-                   expense_change=float(delta), expense_change_percent=change,
-                   categories=breakdown, highest_spending_category=breakdown[0]['category'] if breakdown else None,
-                   budgets=budgets, budget_error=budget_error)
+    report = dict(month=month, summary=summary, previous_month=previous, previous_summary=earlier,
+                  expense_change=float(delta), expense_change_percent=change,
+                  categories=breakdown, highest_spending_category=breakdown[0]['category'] if breakdown else None,
+                  budgets=budgets, budget_error=budget_error)
+    if budget_error is None:  # never cache a partial report
+        cache_set(cache_key, report)
+    return jsonify(report)
 
 
 def csv_text(value):
