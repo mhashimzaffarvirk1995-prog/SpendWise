@@ -111,3 +111,7 @@
 - **Long Python tracebacks:** read the last line first; pipe batch jobs through `2>&1 | tail -n 4` so each item shows only its result.
 - **Test data collided with real IDs:** a test sign-up in Postgres took `id=1`, which the migration also needed. Fix: drop and recreate the database (`pg-init.sh` is idempotent). Lesson: test in a throwaway database, or clean up before migrating.
 - **Sequences after copying IDs:** inserting explicit `id`s leaves the `serial` counter at 1, so the next insert would collide. The migration runs `setval(pg_get_serial_sequence(...), MAX(id)+1, false)` for integer `id` tables.
+- **`aws: command not found` on EC2 (again):** the port-forward command must run in a Mac terminal tab (⌘T), not inside the SSM session. Rule: `aws` = Mac; `docker`/`git`/`sudo`/`dc` = EC2. Check the prompt first.
+- **Backup files created 664:** the shell umask was 002. Directory was 700, but files should be private too: `umask 077` before dumping, `chmod 600` existing files.
+- **Report cache went stale for 5 minutes after a new transaction:** cache key had no version. Fix: per-user generation counter `report-gen:{user}` bumped by transaction/budget writes; key `report:{user}:{month}:g{n}`. Redis policy changed to `volatile-lru` so counters (no TTL) are never evicted.
+- **Redis down:** reports still served (fail open), warnings in logs, cache refilled after restart (`--save ""` = empty on start).
