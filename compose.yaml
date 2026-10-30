@@ -1,0 +1,158 @@
+# SpendWise: 9 services + recurring worker + Postgres + Redis.
+# Run:  TAG=week-04 docker compose --env-file ~/spendwise-pg.env up -d
+# Secrets live outside the repo: ~/spendwise-pg.env (DB passwords), ~/spendwise-docker.env (app secrets + service URLs).
+name: spendwise
+
+x-app: &app
+  restart: unless-stopped
+  env_file: ${HOME}/spendwise-docker.env
+  networks: [backend]
+  deploy:
+    resources:
+      limits:
+        memory: 256m
+  depends_on:
+    db-init:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in ~/spendwise-pg.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  db-init:
+    image: postgres:17
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?}
+      TRANSACTION_DB_PASSWORD: ${TRANSACTION_DB_PASSWORD:?}
+      BUDGET_DB_PASSWORD: ${BUDGET_DB_PASSWORD:?}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?}
+      RECURRING_DB_PASSWORD: ${RECURRING_DB_PASSWORD:?}
+      SAVINGS_DB_PASSWORD: ${SAVINGS_DB_PASSWORD:?}
+      IMPORT_DB_PASSWORD: ${IMPORT_DB_PASSWORD:?}
+    volumes:
+      - ./deploy/compose/db-init.sh:/db-init.sh:ro
+    entrypoint: ["sh", "/db-init.sh"]
+    networks: [backend]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "volatile-lru", "--save", ""]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+
+  auth-service:
+    <<: *app
+    image: spendwise/auth-service:${TAG:-dev}
+    environment:
+      AUTH_DATABASE_URL: postgresql+psycopg://auth_svc:${AUTH_DB_PASSWORD}@postgres:5432/auth
+
+  transaction-service:
+    <<: *app
+    image: spendwise/transaction-service:${TAG:-dev}
+    environment:
+      TRANSACTION_DATABASE_URL: postgresql+psycopg://transaction_svc:${TRANSACTION_DB_PASSWORD}@postgres:5432/transaction
+      REDIS_URL: redis://redis:6379/0
+
+  budget-service:
+    <<: *app
+    image: spendwise/budget-service:${TAG:-dev}
+    environment:
+      BUDGET_DATABASE_URL: postgresql+psycopg://budget_svc:${BUDGET_DB_PASSWORD}@postgres:5432/budget
+      REDIS_URL: redis://redis:6379/0
+
+  notification-service:
+    <<: *app
+    image: spendwise/notification-service:${TAG:-dev}
+    environment:
+      NOTIFICATION_DATABASE_URL: postgresql+psycopg://notification_svc:${NOTIFICATION_DB_PASSWORD}@postgres:5432/notification
+
+  reporting-service:
+    <<: *app
+    image: spendwise/reporting-service:${TAG:-dev}
+    environment:
+      REDIS_URL: redis://redis:6379/0
+
+  recurring-service:
+    <<: *app
+    image: spendwise/recurring-service:${TAG:-dev}
+    environment:
+      RECURRING_DATABASE_URL: postgresql+psycopg://recurring_svc:${RECURRING_DB_PASSWORD}@postgres:5432/recurring
+
+  recurring-worker:
+    <<: *app
+    image: spendwise/recurring-service:${TAG:-dev}
+    command: ["python", "worker.py"]
+    environment:
+      RECURRING_DATABASE_URL: postgresql+psycopg://recurring_svc:${RECURRING_DB_PASSWORD}@postgres:5432/recurring
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/worker-heartbeat') < 60 else 1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+  savings-service:
+    <<: *app
+    image: spendwise/savings-service:${TAG:-dev}
+    environment:
+      SAVINGS_DATABASE_URL: postgresql+psycopg://savings_svc:${SAVINGS_DB_PASSWORD}@postgres:5432/savings
+
+  import-service:
+    <<: *app
+    image: spendwise/import-service:${TAG:-dev}
+    environment:
+      IMPORT_DATABASE_URL: postgresql+psycopg://import_svc:${IMPORT_DB_PASSWORD}@postgres:5432/import
+
+  web-app:
+    <<: *app
+    image: spendwise/web-app:${TAG:-dev}
+    ports:
+      - "127.0.0.1:9000:8080"
+    depends_on:
+      auth-service: {condition: service_healthy}
+      transaction-service: {condition: service_healthy}
+      budget-service: {condition: service_healthy}
+      notification-service: {condition: service_healthy}
+      reporting-service: {condition: service_healthy}
+      recurring-service: {condition: service_healthy}
+      savings-service: {condition: service_healthy}
+      import-service: {condition: service_healthy}
+
+volumes:
+  pgdata:
+
+networks:
+  backend:

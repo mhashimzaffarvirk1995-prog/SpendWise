@@ -7,6 +7,7 @@ from functools import wraps
 from uuid import uuid4
 
 import jwt
+import redis
 import requests
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
@@ -70,6 +71,23 @@ def authenticated(view):
 @app.before_request
 def request_context():
     g.request_id = request.headers.get('X-Request-ID') or str(uuid4())
+
+
+REDIS_URL = os.getenv("REDIS_URL")
+report_cache = redis.Redis.from_url(REDIS_URL, socket_timeout=0.2, socket_connect_timeout=0.2) if REDIS_URL else None
+
+
+@app.after_request
+def invalidate_reports(response):
+    """A successful write changes this user's numbers: bump their report generation."""
+    if report_cache is not None and request.method in ("POST", "PUT", "DELETE") and response.status_code < 400:
+        user_id = g.get('user_id')
+        if user_id:
+            try:
+                report_cache.incr(f"report-gen:{user_id}")
+            except redis.RedisError as error:
+                app.logger.warning("Report cache invalidation failed: %s", type(error).__name__)
+    return response
 
 
 @app.after_request

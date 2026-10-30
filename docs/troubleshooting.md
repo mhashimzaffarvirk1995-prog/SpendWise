@@ -105,3 +105,19 @@
 - **`gunicorn [ERROR] Error handling request (no URI read)`:** a client opened a connection and sent nothing (browser pre-connect / port-forward). Harmless, but shows sync workers can be tied up by idle clients — keep a proxy in front or use gthread workers.
 - **PyJWT CRITICAL CVE:** Trivy on the slim images → PyJWT 2.13.0 (CVE-2026-102268 + 6 HIGH). Bumped to 2.14.0 everywhere, tests OK, rebuilt, scan gate PASS — and patched the running systemd app in /opt too.
 - **Pasted lines with leading spaces → `IndentationError`** in a `python -c` block; prefer one-line commands or heredocs.
+
+## Week 4 · Postgres
+- **Migration failed: `failed to resolve host 'pg-lab'`:** the instance was stopped/started (journalctl: clean `shutdown.target`, no unattended-upgrades). The Week 3 containers came back (`--restart unless-stopped`), but `pg-lab` had `restart=no`, so it stayed `Exited (0)`. Docker DNS only resolves *running* containers, so the name vanished. Diagnose: `docker ps -a`, `docker inspect -f '{{.State.ExitCode}} {{.HostConfig.RestartPolicy.Name}}'`, `docker logs` (`received fast shutdown request` = clean SIGTERM). Fix: `docker update --restart unless-stopped pg-lab && docker start pg-lab`. Prevention: give every long-running container a restart policy; check `pg_isready` before scripts; Compose `depends_on: service_healthy`.
+- **Long Python tracebacks:** read the last line first; pipe batch jobs through `2>&1 | tail -n 4` so each item shows only its result.
+- **Test data collided with real IDs:** a test sign-up in Postgres took `id=1`, which the migration also needed. Fix: drop and recreate the database (`pg-init.sh` is idempotent). Lesson: test in a throwaway database, or clean up before migrating.
+- **Sequences after copying IDs:** inserting explicit `id`s leaves the `serial` counter at 1, so the next insert would collide. The migration runs `setval(pg_get_serial_sequence(...), MAX(id)+1, false)` for integer `id` tables.
+- **`aws: command not found` on EC2 (again):** the port-forward command must run in a Mac terminal tab (⌘T), not inside the SSM session. Rule: `aws` = Mac; `docker`/`git`/`sudo`/`dc` = EC2. Check the prompt first.
+- **Backup files created 664:** the shell umask was 002. Directory was 700, but files should be private too: `umask 077` before dumping, `chmod 600` existing files.
+- **Report cache went stale for 5 minutes after a new transaction:** cache key had no version. Fix: per-user generation counter `report-gen:{user}` bumped by transaction/budget writes; key `report:{user}:{month}:g{n}`. Redis policy changed to `volatile-lru` so counters (no TTL) are never evicted.
+- **Redis down:** reports still served (fail open), warnings in logs, cache refilled after restart (`--save ""` = empty on start).
+
+## Week 4 · ECR
+- **`ScanNotFoundException` / `UnsupportedImageTypeException`:** BuildKit pushes an OCI *image index* (amd64 image + provenance attestation), and the tag points at the index. ECR basic scanning only scans image manifests. The scan-on-push result exists on the child image: query it by digest (`--image-id imageDigest=…`). Options later: build with `--provenance=false`, or keep provenance and always scan by digest.
+- **Rejected push still left an untagged image:** pushing `dev` as `week-04` failed (immutable tag), but its layers and manifests were already uploaded. Found it in `describe-images` (no tags), removed with `batch-delete-image`.
+- **`sudo` on the Mac / PS1 change on the Mac:** wrong tab again. Fix: the EC2 prompt now shows a red **EC2** label (`PS1` in the EC2 `~/.bashrc`).
+- **Scanners disagree:** ECR basic scan 3 HIGH / 9 MEDIUM, Trivy more HIGH for the same base. Pick one scanner as the gate (Trivy) and use the other as a second opinion.

@@ -10,7 +10,7 @@
 ![Docker](https://img.shields.io/badge/docker-multi--stage%20%7C%20non--root-2496ED?logo=docker&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-EC2%20%7C%20SSM-FF9900?logo=amazonaws&logoColor=white)
 ![nginx](https://img.shields.io/badge/nginx-TLS%201.3%20%7C%20HTTP%2F2-009639?logo=nginx&logoColor=white)
-![Roadmap](https://img.shields.io/badge/roadmap-week%203%20of%2026-blueviolet)
+![Roadmap](https://img.shields.io/badge/roadmap-week%204%20of%2026-blueviolet)
 
 ![SpendWise dashboard](app-frontend.png)
 
@@ -49,7 +49,8 @@
 | Linux | LVM data volume, hardened non-root systemd service, backups with a tested restore, cron, logrotate, firewall, fail2ban |
 | Networking | nginx reverse proxy, Let's Encrypt TLS 1.3 with HTTP/2 and HSTS, rate limiting, end-to-end request IDs, VPC CIDR plan |
 | Containers | One image per service, gunicorn, multi-stage non-root builds (**1.68 GB to about 240 MB**), private network, named volumes |
-| Quality gates | GitHub Actions CI, Trivy vulnerability gate, container smoke-test gate, 32-check host verification script |
+| Data | PostgreSQL with one database and one least-privilege role per service, SQLite migration, Redis report cache with instant invalidation, tested backup/restore (RTO ~10–25 s) |
+| Quality gates | GitHub Actions CI, Trivy vulnerability gate, container smoke-test gate, end-to-end Compose smoke test, 32-check host verification script |
 | Operations | 20+ break-and-fix drills, each written up as symptom, cause, fix and prevention |
 
 ---
@@ -104,13 +105,14 @@ In Docker, every service listens on port `8080` inside its container and is reac
 
 | Layer | Tools |
 |---|---|
-| Application | Python 3.12, Flask, SQLite, PyJWT, gunicorn |
+| Application | Python 3.12, Flask, SQLAlchemy, PyJWT, gunicorn |
+| Data | PostgreSQL 17 (psycopg 3), Redis 7.4 (cache), SQLite for local runs |
 | Cloud | AWS EC2 (Ubuntu 24.04), Systems Manager Session Manager, Elastic IP, Security Groups, AWS Budgets |
 | Host | LVM, systemd, cron, logrotate, ufw, fail2ban, AppArmor |
 | Edge | nginx, Let's Encrypt (certbot), sslip.io DNS |
-| Containers | Docker CE, multi-stage Dockerfile, user-defined bridge network, named volumes |
+| Containers | Docker CE, Docker Compose, multi-stage Dockerfile, named volumes, Amazon ECR (immutable tags, scan on push) |
 | Quality and security | GitHub Actions, unittest, Trivy, smoke tests, branch protection |
-| Coming next | PostgreSQL, Redis, Docker Compose, ECR, Terraform, Ansible, Kubernetes, Argo CD, Prometheus, Grafana |
+| Coming next | IAM and multi-account, VPC, RDS, ECS, Terraform, Ansible, Kubernetes, Argo CD, Prometheus, Grafana |
 
 ---
 
@@ -149,6 +151,20 @@ docker ps --format 'table {{.Names}}\t{{.Status}}'
 ```
 
 More detail in [docs/docker.md](docs/docker.md).
+
+### Option 2b: Docker Compose with Postgres and Redis (Week 4)
+
+The whole stack in one file: Postgres, Redis, a one-shot `db-init` job, 9 services and the recurring worker.
+
+```bash
+scripts/docker-build.sh week-04                                   # build the images
+TAG=week-04 docker compose --env-file ~/spendwise-pg.env up -d    # start everything in dependency order
+TAG=week-04 docker compose --env-file ~/spendwise-pg.env ps       # 12 services "healthy"
+docker run --rm --network spendwise_backend -v "$PWD/scripts:/tools:ro" python:3.12-slim \
+  python /tools/compose-smoke.py                                  # end-to-end check, exit 0 = pass
+```
+
+Two env files live outside the repo (mode `600`): `~/spendwise-pg.env` holds `POSTGRES_PASSWORD` and one `<SERVICE>_DB_PASSWORD` per database; `~/spendwise-docker.env` holds the app secrets and service URLs. Start order is enforced by `depends_on`: Postgres healthy → `db-init` done (roles and databases, idempotent) and Redis healthy → services healthy → web-app. Only the web app is published, on `127.0.0.1:9000`. Backup and restore: [docs/backup-restore.md](docs/backup-restore.md).
 
 ### Option 3: Server (systemd + nginx)
 
@@ -218,7 +234,8 @@ Each week ends with documentation, a troubleshooting log entry for every failure
 | 1 | Linux system administration | [`v0.2-week01`](../../releases/tag/v0.2-week01) | Done |
 | 2 | Networking, TLS and Git workflow | [`v0.3-week02`](../../releases/tag/v0.3-week02) | Done |
 | 3 | Docker | [`v0.4-week03`](../../releases/tag/v0.4-week03) | Done |
-| 4 | PostgreSQL, Redis and Docker Compose | | Next |
+| 4 | PostgreSQL, Redis, Compose and ECR | [`v0.5-week04`](../../releases/tag/v0.5-week04) | Done |
+| 5 | Accounts, IAM and governance | | Next |
 
 ### Week 0: AWS workbench and baseline
 
@@ -266,6 +283,20 @@ Goal: package every service as a small, secure, independently running container.
 - **Networking and state.** A user-defined bridge network gives each container a DNS name; each stateful service gets its own named volume, so data survives container replacement.
 - **Gates.** [Trivy scan](scripts/docker-scan.sh) fails the build on CRITICAL CVEs (it caught one in PyJWT, fixed by upgrading to 2.14.0). [Smoke test](scripts/docker-smoke.sh) starts each image alone and requires it to become healthy.
 - **Drills:** fault isolation (one container down, the rest keep serving), OOM kill (exit code 137), `on-failure:5` crash loop, an image that builds but does not run, a worker inheriting the wrong health check, and AppArmor blocking `kill` from a confined shell.
+
+### Week 4: PostgreSQL, Redis, Docker Compose and ECR
+
+Goal: replace SQLite files with a real database server, add a cache, and describe the whole stack as code.
+
+- **Postgres, one boundary per service.** Seven databases, each owned by its own login role (`auth_svc`, `budget_svc`, …) with no special powers; `CONNECT` revoked from everyone else. Created by an idempotent script (`format()` + `\gexec`), safe to run any number of times.
+- **No code rewrite.** The services already used SQLAlchemy, so moving to Postgres meant adding the `psycopg` driver and changing `<SERVICE>_DATABASE_URL`.
+- **Migration with proof.** A fresh backup of the live SQLite data was restored to a scratch folder, counted, migrated table by table inside each service's own image (one transaction per service, re-runnable), then counted again in Postgres: `MIGRATION COUNTS MATCH`. Integer `id` sequences are moved past the copied rows so new inserts never collide.
+- **Redis report cache.** `reporting-service` caches the monthly report for 5 minutes (`X-Cache: HIT/MISS`). It **fails open**: if Redis is down, reports are still computed, and the error is logged. Partial reports are never cached.
+- **Instant invalidation.** A per-user generation counter (`report-gen:{user}`) is part of the cache key; transaction and budget writes `INCR` it, so the next report is fresh at once and there is no stale-write race. Redis uses `volatile-lru` so counters are never evicted.
+- **`compose.yaml`.** Healthchecks everywhere, `depends_on` with `service_healthy` / `service_completed_successfully`, memory limits, YAML anchors to avoid repetition, secrets interpolated from env files outside the repo, and only the web app published.
+- **Backup and restore drill.** `pg_dump`, drop a database, recreate with `db-init`, `pg_restore`: **RTO 10–25 s**; a row written after the backup was lost (**RPO** = time since the last backup) and its id was reused. Written up in [docs/backup-restore.md](docs/backup-restore.md).
+- **Amazon ECR.** Private repository with immutable tags, scan on push and a keep-last-5 lifecycle rule. EC2 pushes with its instance role through `amazon-ecr-credential-helper`, scoped by an inline policy to that one repository — no access keys anywhere.
+- **Drills:** Postgres container gone after a reboot (`restart=no`, DNS name vanished), Redis down (fail open), stale cache before invalidation, overwriting an immutable tag, and an image index that ECR basic scanning cannot scan.
 
 ---
 
@@ -330,6 +361,7 @@ SpendWise/
 | [network-tools.md](docs/network-tools.md) | curl, dig, traceroute, openssl, ss, tcpdump: one question each |
 | [cidr-plan.md](docs/cidr-plan.md) | VPC subnet plan for AWS |
 | [docker.md](docs/docker.md) | Run model, image design, tags, scans, smoke tests, proof |
+| [backup-restore.md](docs/backup-restore.md) | Postgres backup and restore runbook with measured RPO/RTO |
 | [troubleshooting.md](docs/troubleshooting.md) | Every failure so far: symptom, cause, fix, prevention |
 
 ---
@@ -351,7 +383,7 @@ week-NN branch ──► push (CI runs) ──► pull request to main ──►
 | Phase | Weeks | Topics |
 |---|---|---|
 | Foundations | 0 to 3 | AWS workbench, Linux, networking, TLS, Git, Docker (**done**) |
-| Data and packaging | 4 | PostgreSQL, Redis, Docker Compose, migrations, backup and restore, Amazon ECR |
+| Data and packaging | 4 | PostgreSQL, Redis, Docker Compose, migrations, backup and restore, Amazon ECR (**done**) |
 | AWS core | next | IAM, VPC, RDS, ECS |
 | Infrastructure as code | | Terraform, Ansible |
 | CI/CD | | GitHub Actions pipelines, Jenkins |
