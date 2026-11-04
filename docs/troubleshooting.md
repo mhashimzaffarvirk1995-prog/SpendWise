@@ -121,3 +121,9 @@
 - **Rejected push still left an untagged image:** pushing `dev` as `week-04` failed (immutable tag), but its layers and manifests were already uploaded. Found it in `describe-images` (no tags), removed with `batch-delete-image`.
 - **`sudo` on the Mac / PS1 change on the Mac:** wrong tab again. Fix: the EC2 prompt now shows a red **EC2** label (`PS1` in the EC2 `~/.bashrc`).
 - **Scanners disagree:** ECR basic scan 3 HIGH / 9 MEDIUM, Trivy more HIGH for the same base. Pick one scanner as the gate (Trivy) and use the other as a second opinion.
+
+## Week 4 · ECR
+- **`ScanNotFoundException` / `UnsupportedImageTypeException`:** BuildKit pushes an OCI *image index* (amd64 image + provenance attestation), and the tag points at the index. ECR basic scanning only scans image manifests. The scan-on-push result exists on the child image: query it by digest (`--image-id imageDigest=…`). Options later: build with `--provenance=false`, or keep provenance and always scan by digest.
+- **Rejected push still left an untagged image:** pushing `dev` as `week-04` failed (immutable tag), but its layers and manifests were already uploaded. Found it in `describe-images` (no tags), removed with `batch-delete-image`.
+- **`sudo` on the Mac / PS1 change on the Mac:** wrong tab again. Fix: the EC2 prompt now shows a red **EC2** label (`PS1` in the EC2 `~/.bashrc`).
+- **Scanners disagree:** ECR basic scan 3 HIGH / 9 MEDIUM, Trivy more HIGH for the same base. Pick one scanner as the gate (Trivy) and use the other as a second opinion.
